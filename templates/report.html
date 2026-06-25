@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Data Analysis — {{ case.case_caption }}</title>
+<style>
+/* Embed brand fonts — fetched by WeasyPrint at render time */
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&family=Noto+Sans:wght@400;500;700&display=swap');
+
+/* ============== BRAND VARS ============== */
+:root {
+  --ja-primary: #0000B7;
+  --ja-secondary: #0073DF;
+  --ja-mid: #4D4DCC;
+  --ja-light: #E6E6F7;
+  --ja-dark: #1A1A2E;
+  --ja-text: #231F20;
+  --ja-defense: #C0392B;
+  --ja-muted: #6c757d;
+  --ja-rule: #DDDDE3;
+}
+
+/* ============== PAGE / RESET ============== */
+@page {
+  size: Letter;
+  margin: 0.75in 0.75in 1in 0.75in;
+  @bottom-right {
+    content: counter(page);
+    font-family: 'Noto Sans', sans-serif;
+    font-size: 9pt;
+    color: var(--ja-muted);
+  }
+  @bottom-left {
+    content: "Jury Analyst | CONFIDENTIAL";
+    font-family: 'Noto Sans', sans-serif;
+    font-size: 8pt;
+    color: var(--ja-muted);
+  }
+}
+@page :first {
+  @bottom-right { content: ""; }
+  @bottom-left { content: ""; }
+}
+
+body {
+  font-family: 'Noto Sans', Helvetica, Arial, sans-serif;
+  font-size: 10.5pt;
+  line-height: 1.5;
+  color: var(--ja-text);
+  margin: 0;
+}
+
+/* ============== TYPOGRAPHY ============== */
+h1, h2, h3, h4 {
+  font-family: 'Poppins', 'Noto Sans', sans-serif;
+  color: var(--ja-primary);
+  font-weight: 700;
+  margin: 0;
+}
+h1 { font-size: 28pt; }
+h2 { font-size: 18pt; margin-top: 28pt; margin-bottom: 12pt; padding-bottom: 6pt; border-bottom: 2pt solid var(--ja-primary); page-break-after: avoid; }
+h3 { font-size: 13pt; margin-top: 16pt; margin-bottom: 6pt; color: var(--ja-secondary); page-break-after: avoid; break-after: avoid; }
+h4 { font-size: 11pt; margin-top: 12pt; margin-bottom: 4pt; color: var(--ja-primary); page-break-after: avoid; }
+
+p { margin: 0 0 8pt 0; }
+
+/* ============== LISTS ============== */
+/* Replace the default list-style-type:disc with explicit CSS content,
+   because some system fonts (esp. on macOS) lack the unicode bullet
+   glyph and WeasyPrint then falls back to \u0001 which renders as \1
+   in many PDF viewers. Custom markers avoid the issue entirely. */
+ul { list-style: none; padding-left: 18pt; margin: 0 0 8pt 0; }
+ul li { position: relative; margin-bottom: 4pt; }
+ul li::before {
+  content: "•";
+  color: var(--ja-primary);
+  font-weight: 700;
+  position: absolute;
+  left: -14pt;
+  top: 0;
+}
+ol { padding-left: 22pt; margin: 0 0 8pt 0; }
+ol li { margin-bottom: 4pt; }
+ol li::marker { color: var(--ja-primary); font-weight: 600; }
+
+/* ============== COVER ============== */
+.cover {
+  page-break-after: always;
+  text-align: center;
+  padding-top: 1.5in;
+}
+.cover .logo-block {
+  margin-bottom: 0.5in;
+}
+.cover .logo-hex {
+  display: inline-block;
+  width: 100pt;
+  height: 100pt;
+  background: linear-gradient(135deg, var(--ja-primary), var(--ja-secondary));
+  /* Hexagon mask */
+  clip-path: polygon(25% 5%, 75% 5%, 100% 50%, 75% 95%, 25% 95%, 0 50%);
+  position: relative;
+  margin-bottom: 12pt;
+}
+.cover .logo-hex::after {
+  content: "JA";
+  color: white;
+  font-family: 'Poppins', serif;
+  font-weight: 700;
+  font-size: 48pt;
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+}
+.cover .company-name {
+  font-family: 'Poppins', sans-serif;
+  font-size: 24pt;
+  font-weight: 700;
+  color: var(--ja-primary);
+  letter-spacing: 0.05em;
+}
+.cover .company-url {
+  font-family: 'Noto Sans', sans-serif;
+  font-size: 11pt;
+  color: var(--ja-secondary);
+  margin-top: 4pt;
+}
+.cover h1 { font-size: 34pt; color: var(--ja-primary); margin-top: 0.5in; }
+.cover .subtitle { font-style: italic; color: var(--ja-text); font-size: 13pt; margin-top: 8pt; }
+.cover .case-caption { font-size: 18pt; color: var(--ja-primary); font-weight: 700; margin-top: 0.4in; }
+.cover .case-id { font-size: 14pt; font-style: italic; color: var(--ja-secondary); margin-top: 8pt; }
+.cover .date-bar {
+  background: var(--ja-secondary);
+  color: white;
+  padding: 6pt 12pt;
+  margin: 0.4in auto 0;
+  width: 60%;
+  font-size: 11pt;
+  display: flex;
+  justify-content: space-between;
+}
+
+/* ============== STAT BAR ============== */
+.statbar {
+  display: flex;
+  background: linear-gradient(90deg, var(--ja-primary), var(--ja-secondary));
+  color: white;
+  padding: 10pt;
+  margin: 8pt 0 12pt;
+  border-radius: 4pt;
+}
+.statbar .stat {
+  flex: 1;
+  text-align: center;
+  padding: 0 6pt;
+  border-right: 1pt solid rgba(255,255,255,0.3);
+}
+.statbar .stat:last-child { border-right: none; }
+.statbar .stat .v {
+  display: block;
+  font-family: 'Poppins', sans-serif;
+  font-weight: 700;
+  font-size: 16pt;
+}
+.statbar .stat .l {
+  display: block;
+  font-size: 8.5pt;
+  opacity: 0.95;
+  margin-top: 2pt;
+}
+
+/* ============== CHARTS ============== */
+.chart {
+  text-align: center;
+  margin: 8pt 0 14pt;
+  page-break-inside: avoid;
+}
+.chart img { max-width: 100%; height: auto; }
+.chart .caption {
+  font-size: 9pt; font-style: italic; color: var(--ja-muted); margin-top: 4pt;
+}
+
+/* ============== TABLES ============== */
+table.data {
+  width: 100%; border-collapse: collapse;
+  margin: 6pt 0 14pt; font-size: 10pt;
+  page-break-inside: avoid;
+}
+table.data th {
+  background: var(--ja-primary);
+  color: white;
+  text-align: left;
+  padding: 6pt 8pt;
+  font-family: 'Poppins', sans-serif;
+  font-weight: 600;
+  font-size: 10pt;
+}
+table.data td { padding: 5pt 8pt; border-bottom: 1pt solid var(--ja-rule); }
+table.data tr:nth-child(even) td { background: #FAFAFC; }
+
+/* Fact summary table specifically */
+table.facts td.fact-num { font-weight: 700; color: var(--ja-primary); width: 32pt; }
+table.facts td.fact-text { font-size: 9pt; }
+table.facts td.numeric { text-align: center; width: 64pt; }
+table.facts td.direction { font-weight: 700; width: 70pt; text-align: center; }
+table.facts td.direction.PLAINTIFF { color: var(--ja-primary); }
+table.facts td.direction.DEFENSE { color: var(--ja-defense); }
+
+/* ============== FACT BLOCK ============== */
+.fact-block { page-break-inside: avoid; margin-top: 16pt; }
+.fact-block h4 { color: var(--ja-primary); }
+.fact-quotes {
+  background: var(--ja-light);
+  border-left: 3pt solid var(--ja-secondary);
+  padding: 8pt 10pt;
+  margin: 6pt 0 4pt;
+  font-style: italic;
+  font-size: 9.5pt;
+}
+.fact-quotes ul { margin: 0; padding-left: 16pt; }
+.fact-quotes li { margin-bottom: 4pt; }
+
+.insight-callout {
+  background: #F1F1FB;
+  border-left: 3pt solid var(--ja-primary);
+  padding: 8pt 10pt;
+  margin: 6pt 0;
+  font-size: 10pt;
+}
+.insight-callout::before {
+  content: "Strategic Insight: ";
+  font-weight: 700;
+  color: var(--ja-primary);
+}
+
+/* ============== ALERT / WARNING CALLOUT ============== */
+.alert {
+  background: #FFF8E1;
+  border-left: 3pt solid #F39C12;
+  padding: 8pt 10pt;
+  margin: 8pt 0;
+  font-size: 10pt;
+}
+
+/* ============== KEY TAKEAWAY CALLOUT ============== */
+.takeaway {
+  background: linear-gradient(90deg, #F1F1FB, #FFFFFF);
+  border-left: 4pt solid var(--ja-primary);
+  padding: 10pt 14pt;
+  margin: 4pt 0 14pt;
+  font-size: 10.5pt;
+  page-break-inside: avoid;
+}
+.takeaway::before {
+  content: "Key Takeaway";
+  display: block;
+  font-family: 'Poppins', sans-serif;
+  font-weight: 700;
+  font-size: 9pt;
+  color: var(--ja-primary);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 4pt;
+}
+
+/* ============== OPEN-ENDED RESPONSE LISTS ============== */
+.oe-list {
+  font-size: 9pt;
+  font-style: italic;
+  margin: 6pt 0;
+}
+.oe-list .quote {
+  background: #FAFAFC;
+  border-left: 2pt solid var(--ja-rule);
+  padding: 6pt 8pt;
+  margin-bottom: 3pt;
+}
+
+/* ============== UTIL ============== */
+.muted { color: var(--ja-muted); }
+.small { font-size: 9pt; }
+.center { text-align: center; }
+.page-break { page-break-before: always; }
+hr.rule { border: none; border-top: 1pt solid var(--ja-rule); margin: 12pt 0; }
+</style>
+</head>
+<body>
+
+<!-- ============== COVER ============== -->
+<div class="cover">
+  <div class="logo-block">
+    <div class="logo-hex"></div>
+    <div class="company-name">JURY ANALYST</div>
+    <div class="company-url">Juryanalyst.com</div>
+  </div>
+  <h1>Data Analysis</h1>
+  <div class="subtitle">By Jury Analyst</div>
+  <div class="case-caption">{{ case.case_caption }}</div>
+  <div class="case-id">{{ case.case_id }}</div>
+  <div class="date-bar">
+    <span><strong>Date Generated</strong></span>
+    <span>{{ date_generated }}</span>
+  </div>
+</div>
+
+<!-- ============== 1. EXECUTIVE SUMMARY ============== -->
+<h2>1. Executive Summary</h2>
+
+<div class="statbar">
+  <div class="stat"><span class="v">{{ n_respondents }}</span><span class="l">Respondents</span></div>
+  <div class="stat"><span class="v">{{ verdict.pct_plaintiff_leaning }}%</span><span class="l">% Plaintiff-Leaning</span></div>
+  <div class="stat"><span class="v">{{ verdict.pct_liable_yes }}%</span><span class="l">% Found Liable</span></div>
+  <div class="stat"><span class="v">{{ verdict.mean_responsibility_plaintiff }}%</span><span class="l">Avg Resp (Plt)</span></div>
+  <div class="stat"><span class="v">{{ verdict.mean_responsibility_defendant }}%</span><span class="l">Avg Resp (Def)</span></div>
+  <div class="stat"><span class="v">{{ compensation.mean_award_all_fmt }}</span><span class="l">Mean Award</span></div>
+</div>
+
+{{ exec_summary_html | safe }}
+
+<!-- ============== 2. DEMOGRAPHIC PROFILE ============== -->
+<h2>2. Demographic Profile of Respondents</h2>
+{% if section_callouts.takeaway_demographics %}<div class="takeaway">{{ section_callouts.takeaway_demographics }}</div>{% endif %}
+<p>The following charts summarize the demographic composition of the mock juror panel. Understanding panel demographics helps counsel assess representativeness and identify subgroups requiring targeted voir dire attention.</p>
+
+<div class="chart">
+  <img src="{{ charts.demographics }}" alt="Demographic Overview">
+  <div class="caption">Figure 1. Demographic Overview: Gender, Party, Political View, Race/Ethnicity{% if section_callouts.caption_demographics %} — <em>{{ section_callouts.caption_demographics }}</em>{% endif %}</div>
+</div>
+
+<div class="chart">
+  <img src="{{ charts.education_income }}" alt="Education and Income Distribution">
+  <div class="caption">Figure 2. Education and Household Income Distribution{% if section_callouts.caption_education_income %} — <em>{{ section_callouts.caption_education_income }}</em>{% endif %}</div>
+</div>
+
+<!-- ============== 3. CASE FACTS ============== -->
+<h2>3. Case Facts Analysis</h2>
+{% if section_callouts.takeaway_facts %}<div class="takeaway">{{ section_callouts.takeaway_facts }}</div>{% endif %}
+<p>Jurors evaluated {{ facts|length }} case facts on two dimensions: <strong>(1) how important each fact is to deciding the case outcome</strong> (1=Not at all → 6=Very important), and <strong>(2) how it would influence their verdict</strong> (1=Strong positive influence for Defendant → 6=Strong positive influence for Plaintiff). Influence scores above 3.5 favor the plaintiff; below 3.5 favor the defense.</p>
+
+<div class="chart">
+  <img src="{{ charts.facts_importance_influence }}" alt="Case facts importance and influence">
+  <div class="caption">Figure 3. Mean Importance and Influence Scores per Case Fact{% if section_callouts.caption_facts_importance %} — <em>{{ section_callouts.caption_facts_importance }}</em>{% endif %}</div>
+</div>
+
+<div class="chart">
+  <img src="{{ charts.facts_direction }}" alt="Verdict direction per fact">
+  <div class="caption">Figure 4. Proportion of Plaintiff-Leaning vs. Defense-Leaning Reactions per Fact{% if section_callouts.caption_facts_direction %} — <em>{{ section_callouts.caption_facts_direction }}</em>{% endif %}</div>
+</div>
+
+<h3>Summary Table: All Facts</h3>
+<table class="data facts">
+  <thead>
+    <tr><th>Fact</th><th>Description</th><th>Imp. Mean</th><th>Inf. Mean</th><th>Conv. Mean</th><th>% Plt</th><th>Direction</th></tr>
+  </thead>
+  <tbody>
+  {% for f in facts %}
+    <tr>
+      <td class="fact-num">F{{ f.num }}</td>
+      <td class="fact-text">{{ f.text }}</td>
+      <td class="numeric">{{ f.importance_mean }}</td>
+      <td class="numeric">{{ f.influence_mean }}</td>
+      <td class="numeric">{{ f.convincing_mean if f.convincing_mean is not none else "—" }}</td>
+      <td class="numeric">{{ f.pct_plaintiff }}%</td>
+      <td class="direction {{ f.direction }}">{{ f.direction }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+<p class="small muted">Imp. = Importance (1–6, "how important is this to deciding the case"). Inf. = Influence (1=defense → 6=plaintiff). Conv. = Convincing rating (1=not at all → 5=extremely). %Plt = share of jurors whose influence rating leaned plaintiff (≥4).</p>
+
+<!-- Per-fact insight blocks -->
+{% for f in facts %}
+<div class="fact-block">
+  <h3>Fact {{ f.num }}: {{ f.text[:120] }}{% if f.text|length > 120 %}...{% endif %}</h3>
+  <div class="statbar">
+    <div class="stat"><span class="v">{{ f.importance_mean }}</span><span class="l">Importance Mean (1–6)</span></div>
+    <div class="stat"><span class="v">{{ f.influence_mean }}</span><span class="l">Influence Mean</span></div>
+    <div class="stat"><span class="v">{{ f.convincing_mean if f.convincing_mean is not none else "—" }}</span><span class="l">Convincing Mean (1–5)</span></div>
+    <div class="stat"><span class="v">{{ f.pct_plaintiff }}%</span><span class="l">% Plaintiff-Leaning</span></div>
+    <div class="stat"><span class="v">{{ f.pct_defense }}%</span><span class="l">% Defense-Leaning</span></div>
+    <div class="stat"><span class="v">{{ f.direction }}</span><span class="l">Overall Direction</span></div>
+  </div>
+  {% if f.insight_html %}<div class="insight-callout">{{ f.insight_html | safe }}</div>{% endif %}
+  {% if f.quotes %}
+  <h4>Juror Reasoning (Open-Ended)</h4>
+  <div class="fact-quotes">
+    <ul>
+      {% for q in f.quotes[:4] %}<li>"{{ q }}"</li>{% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+</div>
+{% endfor %}
+
+<!-- ============== 4. VERDICT & LIABILITY ============== -->
+<h2>4. Verdict Support &amp; Liability</h2>
+{% if section_callouts.takeaway_verdict %}<div class="takeaway">{{ section_callouts.takeaway_verdict }}</div>{% endif %}
+
+<div class="statbar">
+  <div class="stat"><span class="v">{{ verdict.pct_plaintiff_leaning }}%</span><span class="l">% Plaintiff-Leaning</span></div>
+  <div class="stat"><span class="v">{{ verdict.pct_defense_leaning }}%</span><span class="l">% Defense-Leaning</span></div>
+  <div class="stat"><span class="v">{{ verdict.pct_liable_yes }}%</span><span class="l">% Found Liable</span></div>
+  <div class="stat"><span class="v">{{ verdict.mean_responsibility_plaintiff }}%</span><span class="l">Mean Plt Responsibility</span></div>
+  <div class="stat"><span class="v">{{ verdict.mean_responsibility_defendant }}%</span><span class="l">Mean Def Responsibility</span></div>
+</div>
+
+<p>Jurors rated their overall support on a 6-point scale after reviewing all case facts, then rendered a liability verdict (Yes/No) under the civil preponderance standard. They also allocated responsibility between plaintiff and defendant(s).</p>
+
+<div class="chart">
+  <img src="{{ charts.verdict_support }}" alt="Verdict support distribution">
+  <div class="caption">Figure 5. Verdict Support Distribution (1=Strongly Defense → 6=Strongly Plaintiff){% if section_callouts.caption_verdict_support %} — <em>{{ section_callouts.caption_verdict_support }}</em>{% endif %}</div>
+</div>
+
+<div class="chart">
+  <img src="{{ charts.liability_responsibility }}" alt="Liability and responsibility allocation">
+  <div class="caption">Figure 6. Liability Finding and Mean Responsibility Allocation{% if section_callouts.caption_liability %} — <em>{{ section_callouts.caption_liability }}</em>{% endif %}</div>
+</div>
+
+{% if deserving_rows %}
+<h3>Plaintiff Deservingness</h3>
+<p>Asked immediately after the liability question, jurors rated how deserving the plaintiff is of receiving damages. This sits between liability and compensation: a juror can find the defendant liable but consider the plaintiff only modestly deserving.</p>
+<table class="data">
+  <thead><tr><th>Category</th><th>N</th><th>%</th></tr></thead>
+  <tbody>
+  {% for row in deserving_rows %}
+    <tr><td>{{ row.label }}</td><td>{{ row.n }}</td><td>{{ row.pct }}%</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+<p class="small"><strong>Mean Deservingness Score:</strong> {{ compensation.deserving_mean or "—" }} / 5.00 (5 = Completely deserving)</p>
+{% endif %}
+
+<h3>Favor/Support Distribution Detail</h3>
+<table class="data">
+  <thead><tr><th>Support Category</th><th>N</th><th>%</th></tr></thead>
+  <tbody>
+  {% set total = verdict.support_distribution.values()|sum %}
+  {% for label, n in verdict.support_distribution.items() %}
+    <tr><td>{{ label }}</td><td>{{ n }}</td><td>{{ "%.0f"|format(100*n/total if total else 0) }}%</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<!-- Defendant attribution -->
+{% if defendant_attribution.supported_by_defense_leaners.counts or defendant_attribution.most_liable_by_plaintiff_leaners.counts %}
+<h3>Defendant Attribution</h3>
+<table class="data">
+  <thead><tr><th>Defendant</th><th>Most Supported (Defense-Leaners)</th><th>Most Liable (Plaintiff-Leaners)</th></tr></thead>
+  <tbody>
+    {% set all_defs = (defendant_attribution.supported_by_defense_leaners.counts.keys() | list) + (defendant_attribution.most_liable_by_plaintiff_leaners.counts.keys() | list) %}
+    {% set unique_defs = all_defs | unique | list %}
+    {% for d in unique_defs %}
+      <tr>
+        <td>{{ d }}</td>
+        <td>{{ defendant_attribution.supported_by_defense_leaners.counts.get(d, 0) }}</td>
+        <td>{{ defendant_attribution.most_liable_by_plaintiff_leaners.counts.get(d, 0) }}</td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<h3>Plaintiff Support by Demographic Group</h3>
+<div class="chart">
+  <img src="{{ charts.plaintiff_by_demo }}" alt="Plaintiff support by demographic">
+  <div class="caption">Figure 7. % Plaintiff-Leaning by Demographic Subgroup{% if section_callouts.caption_demo_breakdown %} — <em>{{ section_callouts.caption_demo_breakdown }}</em>{% endif %}</div>
+</div>
+
+{% for demo_key, demo_label in [('political_party','Political Party'), ('political_view','Political View'), ('sex','Sex'), ('race','Race')] %}
+{% if plaintiff_by_demo[demo_key] %}
+<h4>{{ demo_label }}</h4>
+<table class="data">
+  <thead><tr><th>{{ demo_label }}</th><th>N</th><th>% Plaintiff-Leaning</th></tr></thead>
+  <tbody>
+    {% for row in plaintiff_by_demo[demo_key] %}
+      <tr><td>{{ row.group }}</td><td>{{ row.n }}</td><td>{{ row.pct_plaintiff_leaning }}%</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endfor %}
+
+<!-- ============== 5. COMPENSATION ============== -->
+<h2>5. Compensation Analysis</h2>
+{% if section_callouts.takeaway_compensation %}<div class="takeaway">{{ section_callouts.takeaway_compensation }}</div>{% endif %}
+
+<div class="statbar">
+  <div class="stat"><span class="v">{{ compensation.mean_award_all_fmt }}</span><span class="l">Mean Award (All)</span></div>
+  <div class="stat"><span class="v">{{ compensation.median_award_all_fmt }}</span><span class="l">Median (All)</span></div>
+  <div class="stat"><span class="v">{{ compensation.mean_award_liable_fmt }}</span><span class="l">Mean (Liable Only)</span></div>
+  <div class="stat"><span class="v">{{ compensation.median_award_liable_fmt }}</span><span class="l">Median (Liable)</span></div>
+  <div class="stat"><span class="v">{{ compensation.eggshell_mean_fmt }}</span><span class="l">Eggshell (1–7)</span></div>
+</div>
+
+<div class="chart">
+  <img src="{{ charts.award_distribution }}" alt="Award distribution">
+  <div class="caption">Figure 8. Award Distribution{% if section_callouts.caption_award_distribution %} — <em>{{ section_callouts.caption_award_distribution }}</em>{% endif %}</div>
+</div>
+
+{% if ab_analysis %}
+<h3>A/B Sampling Design — Slider vs. Open-Form</h3>
+<p>This case was fielded with an A/B sampling design: participants were randomly assigned to receive the damages question in one of two formats. <strong>Branch A</strong> answered with a slider (an anchor-style input). <strong>Branch B</strong> answered with an open-form numeric entry. Each respondent saw ONE format, not both — so this is a between-subjects comparison of how question framing influences the awards.</p>
+<table class="data">
+  <thead><tr><th>Group</th><th>N</th><th>Mean</th><th>Median</th><th>Winsorized Mean (5/95)</th></tr></thead>
+  <tbody>
+  {% for row in ab_analysis.rows %}
+    <tr>
+      <td>{{ row.label }}</td>
+      <td>{{ row.n }}</td>
+      <td>{{ row.mean }}</td>
+      <td>{{ row.median }}</td>
+      <td>{{ row.winsor }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% if ab_analysis.present %}
+<div class="takeaway" style="margin-top:14px;">
+  <strong>Significance test (Welch's t-test):</strong>
+  p = {{ ab_analysis.p_value }} —
+  {% if ab_analysis.significant %}<strong style="color:var(--ja-secondary, #0073DF);">statistically significant</strong>{% else %}not statistically significant{% endif %}.
+  <br><br>{{ ab_analysis.interpretation }}
+</div>
+{% elif ab_analysis.rows and ab_analysis.rows|length < 3 %}
+<p class="small muted"><em>Only one variant has data in this case — an A/B significance test wasn't run. The single-variant numbers above describe that group only.</em></p>
+{% endif %}
+{% endif %}
+
+{% if case_value_blocks %}
+<h3>Expected Case Value — Monte Carlo Jury Simulation</h3>
+<p>The scenarios below project what a real 12-juror panel would actually deliver, based on this respondent pool. The numbers reflect how often a panel would reach a plaintiff verdict at all, and at what amount when they do — not just an average of individual juror responses. Per-defendant breakouts appear below; only defendants whose responsibility was captured by the survey are shown.</p>
+
+{% for block in case_value_blocks %}
+<h4>{{ block.defendant }}</h4>
+<p class="small muted">Mean responsibility on this defendant: <strong>{{ block.resp_mean }}%</strong> &nbsp;·&nbsp; n with responsibility data: {{ block.n_original }}{% if block.n_pivot %} &nbsp;·&nbsp; n with post-pivot responsibility: {{ block.n_pivot }}{% endif %}</p>
+
+{% if block.original %}
+<table class="data">
+  <thead>
+    <tr><th>Scenario</th><th>Amount</th><th>What it means</th></tr>
+  </thead>
+  <tbody>
+  {% for sc in block.original.scenarios %}
+    <tr>
+      <td><strong>{{ sc.label }}</strong></td>
+      <td class="numeric"><strong>{{ sc.value_fmt }}</strong></td>
+      <td class="small">{{ sc.description }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+<p class="small">Probability of a plaintiff verdict: <strong>{{ block.original.p_plaintiff_pct }}</strong> &nbsp;·&nbsp; Probability of a defense verdict ($0): <strong>{{ block.original.p_defense_pct }}</strong> &nbsp;·&nbsp; Outlier-clipping band: {{ block.original.winsor_low }} – {{ block.original.winsor_high }}</p>
+{% endif %}
+
+{% if block.pivot %}
+<h5 style="margin-top:18px">Post-Pivot Overlay (after facts changed jurors' minds)</h5>
+<p class="small muted">A subset of jurors reassigned responsibility after reviewing the case facts. The scenarios below re-run the simulation using their reassigned percentages.</p>
+<table class="data">
+  <thead>
+    <tr><th>Scenario</th><th>Amount</th><th>Δ vs. Original</th></tr>
+  </thead>
+  <tbody>
+  {% for sc in block.pivot.scenarios %}
+    <tr>
+      <td><strong>{{ sc.label }}</strong></td>
+      <td class="numeric"><strong>{{ sc.value_fmt }}</strong></td>
+      <td class="small">—</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+<p class="small">Probability of a plaintiff verdict (post-pivot): <strong>{{ block.pivot.p_plaintiff_pct }}</strong></p>
+{% endif %}
+{% endfor %}
+
+<p class="small muted"><strong>How we got these numbers.</strong> We simulated thousands of randomly-drawn 12-juror panels from this respondent pool and asked: in how many of them would jurors reach the legal threshold to find for the plaintiff, and at what dollar amount? Each simulated juror's award is weighted by how much fault they personally assigned to the defendant, but only if that juror said "yes" to liability. Extreme outlier awards from one or two respondents are dampened so they don't distort the projection. The scenarios above describe the range a mediator can realistically expect — a typical day, a great day for plaintiff, and a great day for defense.</p>
+{% endif %}
+
+{% if bracket_rows %}
+<h3>Compensation Bracket Selection</h3>
+<table class="data">
+  <thead><tr><th>Bracket</th><th>N</th><th>%</th></tr></thead>
+  <tbody>
+  {% for row in bracket_rows %}
+    <tr><td>{{ row.label }}</td><td>{{ row.n }}</td><td>{{ row.pct }}%</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+{% if demand_rows %}
+<h3>Reaction to Settlement Demand</h3>
+<table class="data">
+  <thead><tr><th>Response</th><th>N</th><th>%</th></tr></thead>
+  <tbody>
+  {% for row in demand_rows %}
+    <tr><td>{{ row.label }}</td><td>{{ row.n }}</td><td>{{ row.pct }}%</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+{% if compensation.reasoning_quotes %}
+<h3>Juror Reasoning for Award (Open-Ended)</h3>
+<div class="oe-list">
+{% for q in compensation.reasoning_quotes[:10] %}
+  <div class="quote">"{{ q }}"</div>
+{% endfor %}
+</div>
+{% endif %}
+
+<!-- ============== 6. JUROR PROFILES & PREDICTIVE INDICATORS ============== -->
+<h2>6. Juror Profiles &amp; Predictive Indicators</h2>
+{% if section_callouts.takeaway_predictors %}<div class="takeaway">{{ section_callouts.takeaway_predictors }}</div>{% endif %}
+<p>The chart and table below identify the juror characteristics — psychographic, attitudinal, and demographic — that most strongly point toward plaintiff or defense lean in this case. Indicators leaning to the right of center predict plaintiff support; those leaning left predict defense support. The longer the bar, the stronger the pull.{% if predictors.accuracy %} Using these indicators, we can correctly anticipate <strong>{{ (predictors.accuracy * 100) | round(1) }}%</strong> of jurors' verdict direction.{% endif %}</p>
+
+<div class="chart">
+  <img src="{{ charts.predictors }}" alt="What predicts a plaintiff-leaning juror">
+  <div class="caption">Figure 9. What Predicts a Plaintiff-Leaning Juror{% if section_callouts.predictors %} — <em>{{ section_callouts.predictors }}</em>{% endif %}</div>
+</div>
+
+{% if predictors.coefficients %}
+<table class="data">
+  <thead><tr><th>Juror Indicator</th><th>Predictive Strength</th><th>Pulls Toward</th></tr></thead>
+  <tbody>
+  {% for c in predictors.coefficients %}
+    <tr><td>{{ c.predictor }}</td><td>{{ "%+.2f"|format(c.coefficient) }}</td><td>{{ c.direction }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+{{ juror_profiles_html | safe }}
+
+<!-- ============== 7. VOIR DIRE ============== -->
+{% if voir_dire_html %}
+<h2>7. Voir Dire Strategy</h2>
+<p>Based on mock juror data, the following voir dire recommendations are designed to identify and remove high-risk jurors, rehabilitate potentially favorable jurors, and surface bias indicators relevant to this case.</p>
+
+{{ voir_dire_html | safe }}
+{% endif %}
+
+<!-- ============== 8. OPEN-ENDED RESPONSES ============== -->
+{% if narrative_themes_html or evidence_gap_themes_html or unanswered_themes_html or open_ended.sponsor_belief.counts %}
+<h2>8. Open-Ended Responses</h2>
+
+{% if narrative_themes_html %}
+<h3>What Jurors Think Really Happened</h3>
+<p>These responses reveal the causal theories jurors spontaneously construct. Recurring themes indicate which facts had the greatest narrative salience.</p>
+{{ narrative_themes_html | safe }}
+{% endif %}
+
+{% if evidence_gap_themes_html %}
+<h3>What Would Have Changed Their Verdict</h3>
+<p>These responses identify evidence gaps that plaintiff counsel should address. Common answers suggest what additional proof would solidify a plaintiff verdict.</p>
+{{ evidence_gap_themes_html | safe }}
+{% endif %}
+
+{% if unanswered_themes_html %}
+<h3>Biggest Unanswered Questions</h3>
+<p>These questions represent areas of doubt that defense will likely exploit. Proactively addressing these in opening statement can preempt deliberation stalls.</p>
+{{ unanswered_themes_html | safe }}
+{% endif %}
+
+{% if open_ended.sponsor_belief.counts %}
+<h3>Who Jurors Think Sponsored the Study</h3>
+<p>Jurors' perceptions of study sponsorship are an indirect measure of their belief about which side's evidence was more persuasive.</p>
+<table class="data">
+  <thead><tr><th>Response</th><th>N</th><th>%</th></tr></thead>
+  <tbody>
+  {% for label, n in (open_ended.sponsor_belief.counts.items() | sort(attribute=1, reverse=True)) %}
+    <tr><td>{{ label }}</td><td>{{ n }}</td><td>{{ open_ended.sponsor_belief.pct.get(label, 0) }}%</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endif %}{# end Section 8 wrapper #}
+
+<!-- ============== 9. ADDITIONAL SURVEY QUESTIONS ============== -->
+{% if discovered_questions %}
+<h2>9. Additional Survey Questions</h2>
+<p>This section summarizes case-specific or supplemental questions found in the survey export that fall outside the standard variable set. Each is presented with its question text, a brief summary or chart of responses, and (for narrative questions) the key themes that emerged.</p>
+
+{% for d in discovered_questions %}
+<div class="fact-block">
+  <h3>{{ d.label }}</h3>
+
+  {% if d.kind == "grouped_scale" %}
+    <p class="small muted">
+      Composite scale of {{ d.item_cols|length }} items.
+      Mean composite score: <strong>{{ d.stats.composite_mean }}</strong> (median: {{ d.stats.composite_median }}).
+      {% if d.stats.n_reverse_scored and d.stats.n_reverse_scored > 0 %}
+      <span style="color:var(--ja-secondary, #0073DF);"><strong>{{ d.stats.n_reverse_scored }} of {{ d.stats.n_items or d.item_cols|length }} items reverse-scored (R)</strong></span> — items whose wording points opposite to the rest of the scale are flipped before averaging.
+      {% endif %}
+    </p>
+    {% if d.items_display %}
+    <table class="data">
+      <thead><tr><th style="width:60%">Item</th><th>Item Mean</th><th>Reverse?</th></tr></thead>
+      <tbody>
+      {% for it in d.items_display %}
+        <tr>
+          <td class="small">{{ it.label }}{% if it.reverse %} <strong style="color:var(--ja-secondary, #0073DF);">(R)</strong>{% endif %}</td>
+          <td class="numeric">{{ it.mean if it.mean is not none else "—" }}</td>
+          <td class="small">{% if it.reverse %}reverse-scored{% if it.manual %} (manual){% endif %}{% else %}—{% endif %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+    {% if d.chart_path %}
+    <div class="chart">
+      <img src="{{ d.chart_path }}" alt="{{ d.label }}">
+      <div class="caption">Per-item means for the {{ d.prefix }} scale.</div>
+    </div>
+    {% endif %}
+
+  {% elif d.kind == "binary" %}
+    <p>{{ d.stats.pct_yes }}% answered Yes ({{ d.stats.yes_count }} respondents); {{ 100 - d.stats.pct_yes }}% answered No ({{ d.stats.no_count }} respondents). N = {{ d.n }}.</p>
+    {% if d.chart_path %}<div class="chart"><img src="{{ d.chart_path }}" alt="{{ d.label }}"></div>{% endif %}
+
+  {% elif d.kind == "numeric_likert" %}
+    <p>Mean: <strong>{{ d.stats.mean }}</strong> · Median: {{ d.stats.median }} · Range: {{ d.stats.min }} – {{ d.stats.max }}. N = {{ d.n }}.</p>
+    {% if d.chart_path %}<div class="chart"><img src="{{ d.chart_path }}" alt="{{ d.label }}"></div>{% endif %}
+
+  {% elif d.kind == "categorical" %}
+    <p class="small muted">N = {{ d.n }}.</p>
+    <table class="data">
+      <thead><tr><th>Response</th><th>N</th><th>%</th></tr></thead>
+      <tbody>
+      {% for label, n in (d.stats.counts.items() | sort(attribute=1, reverse=True)) %}
+        <tr><td>{{ label }}</td><td>{{ n }}</td><td>{{ d.stats.pct.get(label, 0) }}%</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% if d.chart_path %}<div class="chart"><img src="{{ d.chart_path }}" alt="{{ d.label }}"></div>{% endif %}
+
+  {% elif d.kind == "free_text" %}
+    <p class="small muted">{{ d.stats.n_responses }} substantive responses (average length: {{ d.stats.avg_length }} characters). Themes summarized below.</p>
+    {{ d.summary_html | safe }}
+  {% endif %}
+</div>
+{% endfor %}
+{% endif %}
+
+<hr class="rule">
+<p class="muted small center">Report generated by JuryAnalyst™ | {{ date_generated }} | CONFIDENTIAL</p>
+
+</body>
+</html>

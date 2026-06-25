@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Phase 2 · Analyze · Jury Analyst</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&family=Noto+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<div class="brand-bar">
+  <div class="logo-hex"></div>
+  <div class="title">JURY ANALYST PIPELINE</div>
+  <div class="crumbs"></div>
+</div>
+
+<div class="app-shell">
+
+  <h1>Phase 2 — Analyze</h1>
+  <p class="muted">Confirm case metadata, then run the deterministic statistical analysis. No AI here — every number is computed directly from your data.</p>
+  <p class="small"><strong>Case:</strong> <span id="case-id-label">—</span></p>
+
+  <div id="notice" class="notice" style="display:none"></div>
+
+  <div class="card">
+    <h3>Case metadata</h3>
+    <p class="small muted">Pre-filled from the survey PDF where possible. Edit anything that's wrong, then save &amp; run.</p>
+    <label class="field">
+      <span class="lbl">Case ID</span>
+      <input type="text" id="m-case-id">
+    </label>
+    <label class="field">
+      <span class="lbl">Case caption (e.g. "Ward-Brodnicki v. Potato Chip Holdings / Airbnb")</span>
+      <input type="text" id="m-caption">
+    </label>
+    <label class="field">
+      <span class="lbl">Plaintiff name</span>
+      <input type="text" id="m-plaintiff">
+    </label>
+    <label class="field">
+      <span class="lbl">Defendant names (one per line)</span>
+      <textarea id="m-defendants" rows="3"></textarea>
+    </label>
+    <label class="field">
+      <span class="lbl">Jurisdiction (e.g. "Clark County, NV")</span>
+      <input type="text" id="m-county">
+    </label>
+
+    <h3 style="margin-top:24px">Case facts</h3>
+    <p class="small muted">One row per fact. F-number is fixed by the survey order. Edit the fact text to match your case if the parser got it wrong.</p>
+    <div id="facts-editor"></div>
+
+    <h3 style="margin-top:24px">Additional survey questions detected</h3>
+    <p class="small muted">The pipeline scanned the cleaned data for non-standard questions and grouped scales. Each is auto-included by default. Uncheck "Include?" to drop one from the report appendix. Check "Predictor?" for numeric/scale items you want added to the predictive-indicators model.</p>
+    <div id="discovery-panel" class="small muted">Loading…</div>
+
+    <div class="btn-row">
+      <button class="btn" id="run-btn">Save Metadata &amp; Run Analysis</button>
+    </div>
+  </div>
+
+  <div id="result-section" style="display:none">
+    <div class="card">
+      <h3>Analysis summary</h3>
+      <div class="statbar" id="result-stats"></div>
+    </div>
+
+    <div class="card">
+      <h3>Chart preview</h3>
+      <div class="chart-grid" id="chart-grid"></div>
+      <div class="btn-row">
+        <a class="btn" id="continue-phase3">Continue to Phase 3 →</a>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script src="/static/app.js"></script>
+<script>
+renderCrumbs("2");
+
+const caseId = getCaseId();
+if (!caseId) { window.location.href = "/"; }
+document.getElementById("case-id-label").textContent = caseId;
+document.getElementById("continue-phase3").href = `/phase3.html?case=${encodeURIComponent(caseId)}`;
+
+function renderFactsEditor(facts) {
+  const wrap = document.getElementById("facts-editor");
+  wrap.innerHTML = "";
+  if (!facts || !facts.length) {
+    wrap.innerHTML = `<p class="muted small">No facts parsed. Add facts manually below.</p>
+      <button class="btn secondary" id="add-fact-btn">+ Add Fact</button>`;
+    document.getElementById("add-fact-btn").addEventListener("click", () => addFactRow({ num: 1, text: "" }));
+    return;
+  }
+  for (const f of facts) addFactRow(f);
+}
+
+function addFactRow(fact) {
+  const wrap = document.getElementById("facts-editor");
+  const row = el("div", { className: "fact-editor-row" });
+  const numIn = el("input", { type: "number", value: String(fact.num), min: "1", max: "20", className: "fact-num-input" });
+  numIn.style.cssText = "font-weight:700;color:var(--ja-primary);text-align:center;font-size:16px";
+  const txt = el("textarea", { rows: "3" });
+  txt.value = fact.text || "";
+  const rem = el("button", { className: "btn secondary", style: "padding:6px 8px", onclick: () => row.remove() }, "✕");
+  row.appendChild(el("span", { className: "fact-num" }, ""));
+  row.firstChild.appendChild(numIn);
+  row.appendChild(txt);
+  row.appendChild(rem);
+  wrap.appendChild(row);
+}
+
+function collectFacts() {
+  const rows = document.querySelectorAll("#facts-editor .fact-editor-row");
+  const facts = [];
+  for (const r of rows) {
+    const num = parseInt(r.querySelector(".fact-num-input").value, 10);
+    const text = r.querySelector("textarea").value.trim();
+    if (text) facts.push({ num, text });
+  }
+  facts.sort((a, b) => a.num - b.num);
+  return facts;
+}
+
+async function loadMetadata() {
+  try {
+    const m = await api("GET", `/phase2/metadata/${encodeURIComponent(caseId)}`);
+    document.getElementById("m-case-id").value = m.case_id || caseId;
+    document.getElementById("m-caption").value = m.case_caption || "";
+    document.getElementById("m-plaintiff").value = m.plaintiff_name || "";
+    document.getElementById("m-defendants").value = (m.defendant_names || []).join("\n");
+    document.getElementById("m-county").value = m.county_state || "";
+    renderFactsEditor(m.facts || []);
+  } catch (e) {
+    showNotice("Could not load metadata: " + e.message, "error");
+    renderFactsEditor([]);
+  }
+  // Load auto-discovered questions if clean.csv exists
+  loadDiscovery();
+}
+
+async function loadDiscovery() {
+  const panel = document.getElementById("discovery-panel");
+  try {
+    const r = await api("GET", `/phase2/discover/${encodeURIComponent(caseId)}`);
+    renderDiscovery(r.discovered || []);
+  } catch (e) {
+    panel.innerHTML = `<em>${e.message}</em>`;
+  }
+}
+
+function renderDiscovery(discovered) {
+  const panel = document.getElementById("discovery-panel");
+  if (!discovered.length) {
+    panel.innerHTML = "<em>None detected. Standard variables only.</em>";
+    return;
+  }
+
+  // Banner: count auto-reverse-scored items across all composite scales.
+  const reverseCounts = [];
+  for (const d of discovered) {
+    if (d.kind === "grouped_scale" && d.stats && d.stats.per_item) {
+      const n = d.stats.per_item.filter(it => it.reverse_scored).length;
+      if (n > 0) reverseCounts.push({ label: d.label, n });
+    }
+  }
+
+  panel.innerHTML = "";
+  if (reverseCounts.length > 0) {
+    const banner = el("div", {
+      style: "background:#FFF8E1;border-left:4px solid #E6B400;padding:10px 14px;margin-bottom:14px;border-radius:4px;font-size:13px;"
+    });
+    const total = reverseCounts.reduce((s, r) => s + r.n, 0);
+    banner.appendChild(el("strong", {}, `⚠ ${total} item${total > 1 ? "s" : ""} auto-flagged as reverse-scored.`));
+    banner.appendChild(el("span", {}, ` Review each scale below (already expanded) and untick any that shouldn't be flipped before running analysis. `));
+    const list = el("ul", { style: "margin:6px 0 0 18px;font-size:12px;color:#666;" });
+    for (const r of reverseCounts) {
+      list.appendChild(el("li", {}, `${r.label}: ${r.n} reverse-scored`));
+    }
+    banner.appendChild(list);
+    panel.appendChild(banner);
+  }
+
+  // Build table
+  const t = el("table");
+  t.appendChild(el("thead", {}, el("tr", {},
+    el("th", {style:"width:80px"}, "Include?"),
+    el("th", {style:"width:80px"}, "Predictor?"),
+    el("th", {style:"width:90px"}, "Kind"),
+    el("th", {style:"width:60px"}, "N"),
+    el("th", {}, "Question / Label"),
+  )));
+  const tb = el("tbody");
+  for (const d of discovered) {
+    const cb1 = el("input", {type:"checkbox", "data-id": d.id, "data-role":"include"});
+    if (d.include_default !== false) cb1.checked = true;
+    const cb2 = el("input", {type:"checkbox", "data-id": d.id, "data-role":"predictor"});
+    if (d.predictor_default === true) cb2.checked = true;
+    // Predictor checkbox disabled for free-text and categorical
+    if (d.kind === "free_text" || d.kind === "categorical") {
+      cb2.disabled = true;
+      cb2.title = "Free-text and categorical questions cannot be predictors";
+    }
+
+    // Composite scale: show item count + reverse-scoring summary in the label,
+    // with a clickable "edit items" toggle that expands a sub-row.
+    let labelContent = d.label;
+    if (d.kind === "grouped_scale" && d.stats && d.stats.per_item) {
+      const nItems = d.stats.n_items || d.stats.per_item.length;
+      const nRev = d.stats.n_reverse_scored || 0;
+      const revText = nRev > 0
+        ? ` · ${nRev} of ${nItems} items reverse-scored`
+        : ` · ${nItems} items`;
+      const editLink = el("a", {
+        href: "#", style: "margin-left:8px;font-size:11px;color:var(--ja-secondary)",
+        onclick: (e) => { e.preventDefault(); toggleScaleEditor(d.id); }
+      }, "edit items ▾");
+      labelContent = el("span", {}, d.label, el("span", {className:"small muted"}, revText), editLink);
+    }
+
+    const row = el("tr", {"data-id": d.id, className: "discovery-main-row"},
+      el("td", {}, cb1),
+      el("td", {}, cb2),
+      el("td", {className: "small"}, d.kind),
+      el("td", {className: "small"}, String(d.n)),
+      el("td", {className: "small"}, labelContent),
+    );
+    tb.appendChild(row);
+
+    // Hidden expandable row with per-item reverse-scoring checkboxes.
+    // Auto-EXPAND the row when any item was auto-flagged as reverse-scored,
+    // so the user can confirm before clicking Run Analysis.
+    if (d.kind === "grouped_scale" && d.stats && d.stats.per_item) {
+      const editor = renderScaleEditor(d);
+      const hasReverse = (d.stats.per_item || []).some(it => it.reverse_scored);
+      if (hasReverse) editor.style.display = "table-row";
+      tb.appendChild(editor);
+    }
+  }
+  t.appendChild(tb);
+  panel.appendChild(t);
+}
+
+function renderScaleEditor(d) {
+  // A hidden sub-row holding one checkbox per item in the scale.
+  const tr = el("tr", { id: `scale-editor-${d.id}`, style: "display:none" });
+  const cell = el("td", { colspan: "5", style: "background:#FAFAFA;padding:12px 18px;font-size:12px" });
+  cell.appendChild(el("div", { style: "color:#666;margin-bottom:8px" },
+    "Reverse-scored items are flipped before averaging (so all items point the same direction). " +
+    "Auto-detected via item-total correlation; tick or untick to override."));
+  const innerT = el("table", { style: "width:100%" });
+  innerT.appendChild(el("thead", {}, el("tr", {},
+    el("th", { style: "width:90px;text-align:center" }, "Reverse?"),
+    el("th", { style: "width:90px;text-align:center" }, "r w/ rest"),
+    el("th", {}, "Item"),
+  )));
+  const itb = el("tbody");
+  for (const item of d.stats.per_item) {
+    const cb = el("input", {
+      type: "checkbox",
+      "data-scale-id": d.id,
+      "data-item-col": item.col,
+      "data-role": "reverse",
+    });
+    if (item.reverse_scored) cb.checked = true;
+    const corr = item.corr_with_rest;
+    const corrText = (corr === null || corr === undefined) ? "—" :
+      (corr < 0 ? `${corr.toFixed(2)}` : `+${corr.toFixed(2)}`);
+    const corrCell = el("td", { className: "small", style: "text-align:center" }, corrText);
+    if (corr !== null && corr < -0.10) corrCell.style.color = "var(--ja-warn, #C0392B)";
+    const itemRow = el("tr", {},
+      el("td", { style: "text-align:center" }, cb),
+      corrCell,
+      el("td", { className: "small" }, item.col.length > 110 ? item.col.slice(0, 109) + "…" : item.col),
+    );
+    itb.appendChild(itemRow);
+  }
+  innerT.appendChild(itb);
+  cell.appendChild(innerT);
+  tr.appendChild(cell);
+  return tr;
+}
+
+function toggleScaleEditor(scaleId) {
+  const row = document.getElementById(`scale-editor-${scaleId}`);
+  if (!row) return;
+  row.style.display = (row.style.display === "none") ? "table-row" : "none";
+}
+
+function collectDiscoveryChoices() {
+  const out = {};
+  // Top-level include/predictor checkboxes
+  document.querySelectorAll('#discovery-panel input[type="checkbox"][data-id]').forEach(cb => {
+    const id = cb.dataset.id;
+    const role = cb.dataset.role;
+    if (!id) return;
+    if (!out[id]) out[id] = {};
+    out[id][role] = cb.checked;
+  });
+  // Per-item reverse-scoring overrides (only present for grouped_scale items)
+  document.querySelectorAll('#discovery-panel input[type="checkbox"][data-scale-id]').forEach(cb => {
+    const scaleId = cb.dataset.scaleId;
+    const itemCol = cb.dataset.itemCol;
+    if (!scaleId || !itemCol) return;
+    if (!out[scaleId]) out[scaleId] = {};
+    if (!out[scaleId].reverse_overrides) out[scaleId].reverse_overrides = {};
+    out[scaleId].reverse_overrides[itemCol] = cb.checked;
+  });
+  return out;
+}
+
+// Bypass the api() helper so we can read the HTTP status code directly.
+// If the column mapping hasn't been confirmed, the server returns 412 and
+// we bounce to the mapping review page.
+async function runAnalysis(payload) {
+  const r = await fetch("/api/phase2/run", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (r.status === 412) {
+    // Column mapping not yet confirmed — go to the mapping review page.
+    window.location.href = `/phase2_mapping.html?case_id=${encodeURIComponent(caseId)}`;
+    return null;   // signals "don't render results"
+  }
+  if (!r.ok) {
+    let detail = r.statusText;
+    try {
+      const j = await r.json();
+      detail = j.detail || detail;
+    } catch (_) { /* ignore */ }
+    throw new Error(detail);
+  }
+  return await r.json();
+}
+
+document.getElementById("run-btn").addEventListener("click", async () => {
+  hideNotice();
+  const payload = {
+    case_id: caseId,
+    case_caption: document.getElementById("m-caption").value.trim(),
+    plaintiff_name: document.getElementById("m-plaintiff").value.trim(),
+    defendant_names: document.getElementById("m-defendants").value
+      .split("\n").map(s => s.trim()).filter(Boolean),
+    county_state: document.getElementById("m-county").value.trim(),
+    facts: collectFacts(),
+    discovery_choices: collectDiscoveryChoices(),
+  };
+
+  const btn = document.getElementById("run-btn");
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Running analysis…';
+  try {
+    const r = await runAnalysis(payload);
+    if (r === null) return;   // bounced to mapping page
+    renderResults(r);
+    document.getElementById("result-section").style.display = "block";
+    document.getElementById("result-section").scrollIntoView({ behavior: "smooth" });
+  } catch (e) {
+    showNotice("Analysis failed: " + e.message, "error");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Save Metadata & Run Analysis";
+  }
+});
+
+function renderResults(r) {
+  const bar = document.getElementById("result-stats");
+  bar.innerHTML = "";
+  const stats = [
+    ["Respondents", r.n_respondents],
+    ["% Plaintiff", r.summary.pct_plaintiff_leaning + "%"],
+    ["% Liable", r.summary.pct_liable_yes + "%"],
+    ["Mean Award", fmt$(r.summary.mean_award_all)],
+    ["Median", fmt$(r.summary.median_award_all)],
+    ["Facts", r.summary.n_facts],
+  ];
+  for (const [l, v] of stats) {
+    bar.appendChild(el("div", { className: "stat" },
+      el("span", { className: "v" }, String(v)),
+      el("span", { className: "l" }, l),
+    ));
+  }
+
+  const grid = document.getElementById("chart-grid");
+  grid.innerHTML = "";
+  const chartNames = [
+    "demographics.png", "education_income.png",
+    "facts_importance_influence.png", "facts_direction.png",
+    "verdict_support.png", "liability_responsibility.png",
+    "plaintiff_by_demo.png", "award_distribution.png", "predictors.png",
+  ];
+  // Cache-buster so re-runs refresh
+  const ts = Date.now();
+  for (const name of chartNames) {
+    const img = el("img", {
+      src: `/api/phase2/chart/${encodeURIComponent(caseId)}/${name}?t=${ts}`,
+      alt: name,
+    });
+    grid.appendChild(img);
+  }
+}
+
+loadMetadata();
+</script>
+</body>
+</html>

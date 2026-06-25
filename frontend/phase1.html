@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Phase 1 · Clean · Jury Analyst</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&family=Noto+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<div class="brand-bar">
+  <div class="logo-hex"></div>
+  <div class="title">JURY ANALYST PIPELINE</div>
+  <div class="crumbs"></div>
+</div>
+
+<div class="app-shell">
+
+  <h1>Phase 1 — Clean</h1>
+  <p class="muted">Filter your respondent set. Preview which respondents would be flagged, override individuals if needed, then commit the clean dataset.</p>
+  <p class="small"><strong>Case:</strong> <span id="case-id-label">—</span></p>
+
+  <div id="notice" class="notice" style="display:none"></div>
+
+  <div class="card">
+    <h3>Filter configuration</h3>
+    <div class="checkbox-row">
+      <input type="checkbox" id="f-status" checked>
+      <label for="f-status"><strong>Status filter</strong> — remove respondents whose <code>Status</code> is not <em>Complete</em>.</label>
+    </div>
+    <div class="checkbox-row">
+      <input type="checkbox" id="f-speeder" checked>
+      <label for="f-speeder"><strong>Speeders</strong> — remove respondents whose total time is less than <input type="number" id="f-speeder-pct" value="33" min="1" max="100" style="width:60px;display:inline-block"> % of the panel's median duration.</label>
+    </div>
+    <div class="checkbox-row">
+      <input type="checkbox" id="f-straightliner" checked>
+      <label for="f-straightliner"><strong>Straightliners</strong> — remove respondents whose Likert grid responses are <input type="number" id="f-sl-pct" value="100" min="50" max="100" style="width:60px;display:inline-block"> % identical, across scales of at least <input type="number" id="f-sl-min" value="5" min="3" max="20" style="width:50px;display:inline-block"> items.</label>
+    </div>
+    <div class="checkbox-row">
+      <input type="checkbox" id="f-duplicates" checked>
+      <label for="f-duplicates"><strong>Duplicate detection</strong> — keep first occurrence per RID/email; flag subsequent ones.</label>
+    </div>
+    <div class="btn-row">
+      <button class="btn" id="preview-btn">Preview Filters</button>
+    </div>
+  </div>
+
+  <div id="preview-section" style="display:none">
+    <div class="card">
+      <h3>Summary</h3>
+      <div class="statbar" id="summary-stats"></div>
+      <p class="small muted">Uncheck a row in the table below to <em>keep</em> that respondent (override their exclusion).</p>
+    </div>
+
+    <div class="card">
+      <h3>Flagged respondents</h3>
+      <p class="small muted"><strong>Tip:</strong> The checkbox in the leftmost column means "exclude". Uncheck to keep.</p>
+      <div class="flagged-table">
+        <table id="flagged-table">
+          <thead>
+            <tr>
+              <th style="width:60px">Exclude</th>
+              <th>Response ID</th>
+              <th>Email</th>
+              <th>Reasons</th>
+              <th>Detail</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="btn-row">
+        <button class="btn" id="commit-btn">Commit Clean Dataset</button>
+        <button class="btn secondary" id="download-excl-btn" disabled>Download Exclusions CSV</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" id="commit-result" style="display:none">
+    <h3>Cleaned</h3>
+    <div id="commit-summary"></div>
+    <div class="btn-row">
+      <a class="btn" id="continue-phase2">Continue to Phase 2 →</a>
+    </div>
+  </div>
+
+</div>
+
+<script src="/static/app.js"></script>
+<script>
+renderCrumbs("1");
+
+const caseId = getCaseId();
+if (!caseId) {
+  window.location.href = "/";
+}
+document.getElementById("case-id-label").textContent = caseId;
+document.getElementById("continue-phase2").href = `/phase2.html?case=${encodeURIComponent(caseId)}`;
+
+let lastFlagged = [];   // store last preview's records for commit
+
+function buildFilterPayload(extra = {}) {
+  return {
+    case_id: caseId,
+    enable_status: document.getElementById("f-status").checked,
+    enable_speeder: document.getElementById("f-speeder").checked,
+    speeder_threshold_pct: parseFloat(document.getElementById("f-speeder-pct").value) / 100,
+    enable_straightliner: document.getElementById("f-straightliner").checked,
+    straightliner_pct: parseFloat(document.getElementById("f-sl-pct").value) / 100,
+    straightliner_min_items: parseInt(document.getElementById("f-sl-min").value, 10),
+    enable_duplicates: document.getElementById("f-duplicates").checked,
+    ...extra,
+  };
+}
+
+function renderSummary(s) {
+  const bar = document.getElementById("summary-stats");
+  bar.innerHTML = "";
+  const stats = [
+    ["Total Input", s.total_input],
+    ["Incomplete", s.incomplete],
+    ["Speeder", s.speeder],
+    ["Straightliner", s.straightliner],
+    ["Duplicate", s.duplicate],
+    ["Flagged (any)", s.flagged_any],
+    ["Would Remain", s.would_remain],
+  ];
+  for (const [l, v] of stats) {
+    const d = el("div", { className: "stat" },
+      el("span", { className: "v" }, String(v)),
+      el("span", { className: "l" }, l),
+    );
+    bar.appendChild(d);
+  }
+}
+
+function renderFlagged(records) {
+  const tb = document.querySelector("#flagged-table tbody");
+  tb.innerHTML = "";
+  if (!records.length) {
+    tb.appendChild(el("tr", {}, el("td", { colspan: "5", className: "muted small" }, "No respondents flagged.")));
+    return;
+  }
+  for (const r of records) {
+    const cb = el("input", { type: "checkbox", checked: "checked" });
+    cb.dataset.responseId = r.response_id;
+    const detailText = Object.entries(r.detail || {}).map(([k, v]) => `${k}: ${v}`).join(" | ");
+    const row = el("tr", {},
+      el("td", {}, cb),
+      el("td", { html: `<code>${r.response_id}</code>` }),
+      el("td", { className: "small" }, r.email || r.rid || "—"),
+      el("td", {}, (r.reasons || []).join(", ")),
+      el("td", { className: "small muted" }, detailText),
+    );
+    tb.appendChild(row);
+  }
+}
+
+document.getElementById("preview-btn").addEventListener("click", async () => {
+  hideNotice();
+  const btn = document.getElementById("preview-btn");
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Previewing…';
+  try {
+    const r = await api("POST", "/phase1/preview", buildFilterPayload());
+    lastFlagged = r.flagged;
+    renderSummary(r.summary);
+    renderFlagged(r.flagged);
+    document.getElementById("preview-section").style.display = "block";
+  } catch (e) {
+    showNotice("Preview failed: " + e.message, "error");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Preview Filters";
+  }
+});
+
+document.getElementById("commit-btn").addEventListener("click", async () => {
+  hideNotice();
+  // Anyone whose checkbox is UNchecked = override (keep)
+  const overrides = Array.from(
+    document.querySelectorAll("#flagged-table tbody input[type=checkbox]")
+  ).filter(cb => !cb.checked).map(cb => cb.dataset.responseId);
+
+  const btn = document.getElementById("commit-btn");
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Committing…';
+  try {
+    const r = await api("POST", "/phase1/commit", buildFilterPayload({ keep_response_ids: overrides }));
+    document.getElementById("commit-result").style.display = "block";
+    document.getElementById("commit-summary").innerHTML = `
+      <p>Clean dataset written: <strong>${r.clean_rows} respondents</strong> remain.</p>
+      <p class="muted small">Excluded: ${r.excluded_rows} · Per-person overrides applied: ${r.overrides_applied}</p>
+    `;
+    document.getElementById("download-excl-btn").disabled = false;
+    document.getElementById("commit-result").scrollIntoView({ behavior: "smooth" });
+  } catch (e) {
+    showNotice("Commit failed: " + e.message, "error");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Commit Clean Dataset";
+  }
+});
+
+document.getElementById("download-excl-btn").addEventListener("click", () => {
+  window.location.href = `/api/phase1/exclusions/${encodeURIComponent(caseId)}`;
+});
+</script>
+</body>
+</html>

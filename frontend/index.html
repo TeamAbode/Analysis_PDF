@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Jury Analyst Pipeline</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&family=Noto+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<div class="brand-bar">
+  <div class="logo-hex"></div>
+  <div class="title">JURY ANALYST PIPELINE</div>
+  <div class="crumbs"></div>
+</div>
+
+<div class="app-shell">
+
+  <h1>Start</h1>
+  <p class="muted">Open an existing case or upload a new Alchemer survey export to begin.</p>
+
+  <div id="notice" class="notice" style="display:none"></div>
+
+  <div class="card">
+    <h3>Start a new case</h3>
+    <label class="field">
+      <span class="lbl">Case ID</span>
+      <input type="text" id="new-case-id" placeholder="e.g. VFGNV2040" maxlength="32">
+    </label>
+    <label class="field">
+      <span class="lbl">Alchemer CSV export</span>
+      <input type="file" id="new-case-csv" accept=".csv">
+    </label>
+    <label class="field">
+      <span class="lbl">Alchemer survey PDF <span class="muted">(optional — used to auto-parse parties &amp; fact text)</span></span>
+      <input type="file" id="new-case-pdf" accept=".pdf">
+    </label>
+    <div class="btn-row">
+      <button class="btn" id="new-case-btn">Upload &amp; Start Phase 1</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Existing cases</h3>
+    <div id="case-list">
+      <p class="muted small">Loading…</p>
+    </div>
+  </div>
+
+</div>
+
+<script src="/static/app.js"></script>
+<script>
+renderCrumbs("start");
+
+async function loadCases() {
+  const wrap = document.getElementById("case-list");
+  try {
+    const r = await api("GET", "/cases");
+    if (!r.cases.length) {
+      wrap.innerHTML = "<p class='muted small'>No cases yet. Upload a CSV above to start.</p>";
+      return;
+    }
+    const t = el("table");
+    t.appendChild(el("thead", {}, el("tr", {},
+      el("th", {}, "Case ID"),
+      el("th", {}, "Caption"),
+      el("th", {}, "Phase 1"),
+      el("th", {}, "Phase 2"),
+      el("th", {}, "Phase 3"),
+      el("th", {}, ""),
+    )));
+    const tb = el("tbody");
+    for (const c of r.cases) {
+      const row = el("tr", {},
+        el("td", {html: `<strong>${c.case_id}</strong>`}),
+        el("td", {}, c.case_caption || "—"),
+        el("td", {}, c.has_clean ? "✓" : (c.has_raw ? "in progress" : "—")),
+        el("td", {}, c.has_bundle ? "✓" : "—"),
+        el("td", {}, c.has_report ? "✓" : "—"),
+        el("td", {},
+          el("a", {className: "btn secondary", href: `/phase1.html?case=${encodeURIComponent(c.case_id)}`}, "Open")
+        ),
+      );
+      tb.appendChild(row);
+    }
+    t.appendChild(tb);
+    wrap.innerHTML = "";
+    wrap.appendChild(t);
+  } catch (e) {
+    wrap.innerHTML = `<p class="muted small">Could not load cases: ${e.message}</p>`;
+  }
+}
+
+document.getElementById("new-case-btn").addEventListener("click", async () => {
+  hideNotice();
+  const caseId = document.getElementById("new-case-id").value.trim();
+  const csvFile = document.getElementById("new-case-csv").files[0];
+  const pdfFile = document.getElementById("new-case-pdf").files[0];
+
+  if (!caseId) { showNotice("Case ID is required.", "error"); return; }
+  if (!csvFile) { showNotice("CSV file is required.", "error"); return; }
+
+  const fd = new FormData();
+  fd.append("case_id", caseId);
+  fd.append("csv", csvFile);
+  if (pdfFile) fd.append("survey_pdf", pdfFile);
+
+  const btn = document.getElementById("new-case-btn");
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Uploading…';
+  try {
+    const r = await api("POST", "/upload", fd, true);
+    setCaseId(caseId);
+    let msg = `Uploaded ${r.rows} rows.`;
+    if (r.metadata_parsed) msg += " Survey metadata parsed.";
+    if (r.metadata_parse_error) msg += " (Survey PDF parse failed — you can enter metadata manually in Phase 2.)";
+    showNotice(msg + " Continuing to Phase 1…", "success");
+    setTimeout(() => {
+      window.location.href = `/phase1.html?case=${encodeURIComponent(caseId)}`;
+    }, 700);
+  } catch (e) {
+    showNotice("Upload failed: " + e.message, "error");
+    btn.disabled = false;
+    btn.textContent = "Upload & Start Phase 1";
+  }
+});
+
+loadCases();
+</script>
+</body>
+</html>

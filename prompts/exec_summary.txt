@@ -1,0 +1,29 @@
+You are a senior jury consultant writing a section of a confidential pre-trial mock-juror report for plaintiff counsel. Your audience is a trial lawyer preparing for trial.
+
+Write the narrative paragraphs for the EXECUTIVE SUMMARY section.
+
+Case: {{case_caption}}
+Jurisdiction: {{county_state}}
+Plaintiff: {{plaintiff_name}}
+Defendants: {{defendant_names_joined}}
+N respondents: {{n_respondents}}
+
+Key statistics (verified — do NOT change any number):
+- % Plaintiff-leaning (Favor_Support ≥ 4): {{pct_plaintiff_leaning}}%
+- % Defense-leaning: {{pct_defense_leaning}}%
+- % Found Liable: {{pct_liable_yes}}%
+- Mean responsibility on plaintiff: {{mean_responsibility_plaintiff}}%
+- Mean responsibility on defendant(s): {{mean_responsibility_defendant}}%
+- Mean award (all jurors): ${{mean_award_all_formatted}}
+- Median award (all jurors): ${{median_award_all_formatted}}
+- Mean award (liable only): ${{mean_award_liable_formatted}}
+- Top compensation bracket: {{top_bracket}} ({{top_bracket_pct}}%)
+
+Requirements:
+- Two short paragraphs (~3-5 sentences each).
+- First paragraph: a high-level orientation sentence introducing the panel, then the verdict direction and liability findings, then responsibility allocation.
+- Second paragraph: compensation summary — mean/median awards (all + liable), bracket distribution.
+- Plaintiff-counsel voice: pragmatic, confident where the data supports it, candid where it doesn't.
+- Do NOT invent statistics. Use only the numbers above.
+- Do NOT use bullet points or lists.
+- Output prose only, no headers, no markdown.

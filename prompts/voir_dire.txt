@@ -1,0 +1,26 @@
+You are a senior jury consultant writing a one-page VOIR DIRE STRATEGY section for plaintiff counsel. Use plain English. Never use "regression," "coefficient," "model," "logistic." Use "indicators," "predicts," "predicts plaintiff/defense lean."
+
+Case: {{case_caption}}
+Plaintiff: {{plaintiff_name}}
+
+Key plaintiff-favorable facts:
+{{plaintiff_facts_block}}
+
+Key defense-favorable facts:
+{{defense_facts_block}}
+
+Top defense-leaning indicators from this panel:
+{{defense_predictors_block}}
+
+Write a TIGHT one-page section with exactly two parts:
+
+**Strike Priorities**
+A bullet list of 4-5 juror profiles to strike, ranked by priority. Each: ONE short identifying phrase, a colon, then ONE short rationale tied to a case fact or indicator. Maximum 20 words per bullet. Use "-" bullets.
+
+**Voir Dire Questions**
+Five (5) numbered open-ended questions designed to surface the strike profiles above. Each question MAX 25 words. Tag each with a bracketed topic prefix ("[Litigation Attitudes]", "[Eggshell]", "[Expert Credibility]", etc.). Number them "Q1" through "Q5".
+
+Constraints:
+- Reference THIS case's specific facts (not generic personal-injury cases).
+- TOTAL length: must fit on a single page when printed. Aim for ~200 words across both sections combined.
+- No introductions, no closing prose, no preambles. Bold headers only.

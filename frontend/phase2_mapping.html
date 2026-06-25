@@ -1,0 +1,411 @@
+<!--
+  Phase 2 — Column Mapping Review
+  ================================
+  Mandatory step between Phase 1 (clean) and Phase 2 (analyze).
+
+  Drop this file into the `frontend/` folder and either:
+    (a) link to it from phase2.html as `phase2_mapping.html?case_id=XYZ`, or
+    (b) inline the <body> contents into phase2.html as the first tab/section.
+
+  Backend routes used:
+    GET  /api/phase2/mapping/{case_id}    — returns auto-resolved mapping + candidates
+    POST /api/phase2/mapping/{case_id}    — saves user-confirmed mapping
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Phase 2 — Column Mapping Review</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800&family=Noto+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ja-primary: #0000B7;
+    --ja-secondary: #0073DF;
+    --ja-text: #231F20;
+    --ja-light-accent: #E6E6F7;
+    --ja-mid-accent: #4D4DCC;
+    --ja-light-gray: #F5F5F5;
+    --ja-warn: #C0392B;
+    --ja-ok: #1E8E3E;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px 32px 80px;
+    font-family: 'Noto Sans', sans-serif;
+    color: var(--ja-text);
+    background: #FFF;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  h1, h2, h3 { font-family: 'Poppins', sans-serif; color: var(--ja-primary); font-weight: 700; }
+  h1 { font-size: 28px; margin: 12px 0 4px; }
+  h2 { font-size: 18px; margin: 28px 0 8px; }
+  .subtitle { color: #555; font-size: 14px; margin-bottom: 24px; }
+  .case-id { font-family: monospace; background: var(--ja-light-accent); padding: 2px 8px; border-radius: 4px; }
+
+  .role-block {
+    border: 1px solid #DDD;
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin-bottom: 14px;
+    background: #FFF;
+  }
+  .role-block.has-match { border-left: 4px solid var(--ja-ok); }
+  .role-block.no-match { border-left: 4px solid #BBB; background: var(--ja-light-gray); }
+  .role-block.low-conf { border-left: 4px solid #E6B400; }
+
+  .role-header {
+    display: flex; justify-content: space-between; align-items: baseline;
+    margin-bottom: 8px;
+  }
+  .role-title { font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 15px; }
+  .role-conf {
+    font-size: 12px; color: #666; font-family: monospace;
+  }
+  .role-conf.ok { color: var(--ja-ok); }
+  .role-conf.warn { color: #B07900; }
+  .role-conf.none { color: #888; }
+
+  .col-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 0; border-bottom: 1px dashed #EEE;
+  }
+  .col-row:last-child { border-bottom: none; }
+  .col-row select {
+    flex: 1; font-family: 'Noto Sans', sans-serif; font-size: 13px;
+    padding: 5px 8px; border: 1px solid #CCC; border-radius: 4px;
+    color: var(--ja-text); background: #FFF;
+  }
+  .col-row button.remove {
+    background: none; border: none; color: var(--ja-warn);
+    cursor: pointer; font-size: 18px; padding: 0 6px;
+  }
+  .col-row .col-sample {
+    font-size: 11px; color: #888; font-style: italic;
+    margin-left: 6px; max-width: 380px; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+  }
+
+  .add-btn {
+    background: var(--ja-secondary); color: #FFF; border: none;
+    padding: 5px 12px; border-radius: 4px; font-size: 12px;
+    font-family: 'Poppins', sans-serif; cursor: pointer; margin-top: 6px;
+  }
+  .add-btn:hover { background: var(--ja-primary); }
+
+  .skip-pill {
+    display: inline-block; font-size: 11px; color: #888;
+    background: #EEE; padding: 2px 8px; border-radius: 10px; margin-left: 8px;
+  }
+
+  .unmapped-section {
+    margin-top: 32px; padding: 16px; background: var(--ja-light-gray);
+    border-radius: 8px;
+  }
+  .unmapped-list { font-size: 13px; color: #555; }
+  .unmapped-list li { margin-bottom: 6px; }
+  .unmapped-list code {
+    background: #FFF; padding: 1px 5px; border-radius: 3px;
+    font-size: 12px;
+  }
+
+  .confirm-bar {
+    position: sticky; bottom: 0; background: #FFF;
+    border-top: 2px solid var(--ja-primary);
+    padding: 14px 0; margin-top: 32px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .confirm-bar .summary { font-size: 13px; color: #666; }
+  .confirm-bar button {
+    background: var(--ja-primary); color: #FFF; border: none;
+    padding: 12px 28px; border-radius: 6px; font-size: 14px;
+    font-family: 'Poppins', sans-serif; font-weight: 600;
+    cursor: pointer; letter-spacing: 0.3px;
+  }
+  .confirm-bar button:hover { background: var(--ja-secondary); }
+  .confirm-bar button:disabled { background: #AAA; cursor: not-allowed; }
+
+  .toast {
+    position: fixed; top: 20px; right: 20px;
+    background: var(--ja-ok); color: #FFF; padding: 12px 20px;
+    border-radius: 6px; font-family: 'Poppins', sans-serif;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    opacity: 0; transition: opacity 0.3s;
+  }
+  .toast.show { opacity: 1; }
+  .toast.error { background: var(--ja-warn); }
+</style>
+</head>
+<body>
+
+<h1>Column Mapping Review</h1>
+<div class="subtitle">
+  Case <span class="case-id" id="case-id-display">—</span> —
+  confirm which survey columns fill each report role before running analysis.
+  Roles with no column will be <strong>skipped</strong> in the final report.
+</div>
+
+<div id="roles-container"></div>
+
+<div class="unmapped-section">
+  <h2>Unassigned columns</h2>
+  <div class="subtitle">
+    These columns aren't claimed by any canonical field, scale, fact, or role above.
+    If any look like a missing open-ended prompt, assign it to a role using the dropdowns above.
+    Anything left here will be picked up by auto-discovery for Section 9.
+  </div>
+  <ol class="unmapped-list" id="unmapped-list"></ol>
+</div>
+
+<div class="confirm-bar">
+  <div class="summary" id="summary-text">Loading…</div>
+  <button id="confirm-btn" disabled>Confirm mapping & continue</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  // ---------- bootstrap ----------
+  const params = new URLSearchParams(window.location.search);
+  const CASE_ID = params.get('case_id');
+  if (!CASE_ID) {
+    document.body.innerHTML = '<h1 style="color:#C0392B">Missing ?case_id= in URL</h1>';
+    throw new Error('no case_id');
+  }
+  document.getElementById('case-id-display').textContent = CASE_ID;
+
+  let state = null;   // { mapping, role_meta, unmapped_columns, column_samples }
+
+  function showToast(msg, isError) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'toast show' + (isError ? ' error' : '');
+    setTimeout(() => { t.className = 'toast' + (isError ? ' error' : ''); }, 2500);
+  }
+
+  // ---------- load ----------
+  async function loadMapping() {
+    const r = await fetch(`/api/phase2/mapping/${CASE_ID}`);
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      showToast('Failed to load: ' + (err.detail || r.statusText), true);
+      return;
+    }
+    state = await r.json();
+    render();
+  }
+
+  // ---------- render ----------
+  function render() {
+    const container = document.getElementById('roles-container');
+    container.innerHTML = '';
+
+    const roleIds = Object.keys(state.role_meta);
+    for (const rid of roleIds) {
+      container.appendChild(renderRole(rid));
+    }
+
+    // unmapped columns
+    const ul = document.getElementById('unmapped-list');
+    ul.innerHTML = '';
+    const assigned = new Set();
+    for (const e of Object.values(state.mapping.roles)) {
+      for (const c of (e.columns || [])) assigned.add(c);
+    }
+    const stillUnmapped = state.unmapped_columns.filter(c => !assigned.has(c));
+    for (const col of stillUnmapped) {
+      const li = document.createElement('li');
+      const samp = (state.column_samples[col] || [''])[0] || '';
+      li.innerHTML = `<code>${escapeHtml(truncate(col, 100))}</code> ` +
+                     `<span style="color:#999">— "${escapeHtml(truncate(samp, 80))}"</span>`;
+      ul.appendChild(li);
+    }
+    if (stillUnmapped.length === 0) {
+      ul.innerHTML = '<li style="color:#888"><em>(all candidate columns assigned)</em></li>';
+    }
+
+    updateSummary();
+  }
+
+  function renderRole(rid) {
+    const meta = state.role_meta[rid];
+    const entry = state.mapping.roles[rid] || { columns: [], confidence: 0, manual: false, candidates: [] };
+    const cols = entry.columns || [];
+
+    const block = document.createElement('div');
+    let cls = 'role-block';
+    if (cols.length === 0) cls += ' no-match';
+    else if (entry.confidence < 0.7) cls += ' low-conf';
+    else cls += ' has-match';
+    block.className = cls;
+
+    // header
+    const header = document.createElement('div');
+    header.className = 'role-header';
+    const title = document.createElement('div');
+    title.className = 'role-title';
+    title.textContent = meta.label;
+    if (meta.multi) {
+      const pill = document.createElement('span');
+      pill.className = 'skip-pill';
+      pill.textContent = 'multi-fill';
+      pill.style.background = 'var(--ja-light-accent)';
+      pill.style.color = 'var(--ja-primary)';
+      title.appendChild(pill);
+    }
+    const conf = document.createElement('div');
+    conf.className = 'role-conf';
+    if (cols.length === 0) { conf.textContent = '(no match — section will be skipped)'; conf.className += ' none'; }
+    else if (entry.confidence >= 0.9) { conf.textContent = `auto · conf ${entry.confidence}`; conf.className += ' ok'; }
+    else { conf.textContent = `auto · conf ${entry.confidence} — please verify`; conf.className += ' warn'; }
+    if (entry.manual) { conf.textContent = 'manual'; conf.className = 'role-conf ok'; }
+    header.appendChild(title);
+    header.appendChild(conf);
+    block.appendChild(header);
+
+    // rows for each assigned column
+    cols.forEach((col, idx) => {
+      block.appendChild(renderColRow(rid, col, idx, meta.multi));
+    });
+
+    // "add column" button for multi-fill, or for empty single-fill
+    if (meta.multi || cols.length === 0) {
+      const addBtn = document.createElement('button');
+      addBtn.className = 'add-btn';
+      addBtn.textContent = cols.length === 0 ? '+ Assign a column' : '+ Add another column';
+      addBtn.onclick = () => {
+        state.mapping.roles[rid] = state.mapping.roles[rid] || { columns: [], confidence: 0, manual: true };
+        state.mapping.roles[rid].columns = [...(state.mapping.roles[rid].columns || []), ''];
+        state.mapping.roles[rid].manual = true;
+        render();
+      };
+      block.appendChild(addBtn);
+    }
+
+    return block;
+  }
+
+  function renderColRow(rid, currentCol, idx, isMulti) {
+    const row = document.createElement('div');
+    row.className = 'col-row';
+
+    const select = document.createElement('select');
+    // build options: (skip) + every candidate column from unmapped_columns plus the current value
+    const allCols = new Set(state.unmapped_columns);
+    allCols.add(currentCol);
+    // Also include columns currently assigned to other roles, so user can move them
+    for (const [orid, e] of Object.entries(state.mapping.roles)) {
+      if (orid !== rid) {
+        for (const c of (e.columns || [])) allCols.add(c);
+      }
+    }
+
+    const blank = document.createElement('option');
+    blank.value = '';
+    blank.textContent = '— (skip / unassigned) —';
+    select.appendChild(blank);
+
+    [...allCols].filter(Boolean).sort().forEach(col => {
+      const opt = document.createElement('option');
+      opt.value = col;
+      opt.textContent = truncate(col, 90);
+      if (col === currentCol) opt.selected = true;
+      select.appendChild(opt);
+    });
+
+    select.onchange = (e) => {
+      const newCol = e.target.value;
+      // Remove this column from any OTHER role it was in (a column can only fill one role)
+      if (newCol) {
+        for (const [orid, oe] of Object.entries(state.mapping.roles)) {
+          if (orid !== rid) {
+            oe.columns = (oe.columns || []).filter(c => c !== newCol);
+          }
+        }
+      }
+      state.mapping.roles[rid].columns[idx] = newCol;
+      state.mapping.roles[rid].manual = true;
+      // Clean up empty entries
+      state.mapping.roles[rid].columns = state.mapping.roles[rid].columns.filter(c => c !== '');
+      render();
+    };
+
+    row.appendChild(select);
+
+    // sample preview
+    if (currentCol && state.column_samples[currentCol]) {
+      const samp = document.createElement('div');
+      samp.className = 'col-sample';
+      samp.textContent = '"' + state.column_samples[currentCol][0] + '"';
+      row.appendChild(samp);
+    }
+
+    // remove button
+    if (currentCol) {
+      const rm = document.createElement('button');
+      rm.className = 'remove';
+      rm.textContent = '×';
+      rm.title = 'Remove from this role';
+      rm.onclick = () => {
+        state.mapping.roles[rid].columns.splice(idx, 1);
+        state.mapping.roles[rid].manual = true;
+        render();
+      };
+      row.appendChild(rm);
+    }
+
+    return row;
+  }
+
+  function updateSummary() {
+    const filled = Object.values(state.mapping.roles)
+      .filter(e => (e.columns || []).length > 0).length;
+    const total = Object.keys(state.role_meta).length;
+    document.getElementById('summary-text').textContent =
+      `${filled} of ${total} roles assigned. Unassigned roles will be skipped in the report.`;
+    document.getElementById('confirm-btn').disabled = false;
+  }
+
+  // ---------- save ----------
+  document.getElementById('confirm-btn').onclick = async () => {
+    const btn = document.getElementById('confirm-btn');
+    btn.disabled = true;
+    btn.textContent = 'Saving…';
+    const body = {
+      case_id: CASE_ID,
+      roles: Object.fromEntries(
+        Object.entries(state.mapping.roles).map(([rid, e]) => [rid, { columns: e.columns || [] }])
+      ),
+    };
+    try {
+      const r = await fetch(`/api/phase2/mapping/${CASE_ID}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      showToast('Mapping confirmed — opening analysis…', false);
+      // Hand off to the rest of Phase 2
+      setTimeout(() => {
+        window.location.href = `/phase2.html?case_id=${encodeURIComponent(CASE_ID)}`;
+      }, 600);
+    } catch (e) {
+      showToast('Save failed: ' + e.message, true);
+      btn.disabled = false;
+      btn.textContent = 'Confirm mapping & continue';
+    }
+  };
+
+  // ---------- utils ----------
+  function truncate(s, n) { s = String(s || ''); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
+  }
+
+  loadMapping();
+</script>
+</body>
+</html>

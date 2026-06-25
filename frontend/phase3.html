@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Phase 3 · Report · Jury Analyst</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&family=Noto+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/app.css">
+<style>
+  .section-tile { border:1px solid #DDD; border-radius:8px; padding:14px 16px; margin-bottom:14px; background:#FFF; }
+  .section-tile .head { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:10px; flex-wrap:wrap; }
+  .section-tile .head h4 { margin:0; font-family:'Poppins',sans-serif; font-weight:600; color:var(--ja-primary,#0000B7); }
+  .section-tile .head .controls { display:flex; align-items:center; gap:14px; }
+  .section-tile textarea {
+    width:100%; min-height:140px; box-sizing:border-box;
+    font-family:'Noto Sans',sans-serif; font-size:13px; line-height:1.55;
+    padding:10px 12px; border:1px solid #CCC; border-radius:4px;
+    color:var(--ja-text,#231F20); resize:vertical;
+  }
+  .section-tile textarea:focus { outline:2px solid var(--ja-secondary,#0073DF); border-color:var(--ja-secondary,#0073DF); }
+  .section-tile.skipped { opacity:0.55; background:#F7F7F7; }
+  .section-tile.skipped textarea { background:#EEE; color:#777; }
+  .skip-toggle { font-size:12px; color:#666; display:inline-flex; align-items:center; gap:6px; cursor:pointer; user-select:none; }
+  .skip-toggle input { transform: scale(1.1); cursor:pointer; }
+  .save-bar {
+    position:sticky; bottom:0; background:#FFF; border-top:2px solid var(--ja-primary,#0000B7);
+    padding:14px 16px; margin-top:20px;
+    display:flex; justify-content:space-between; align-items:center; gap:14px;
+  }
+  .save-bar .status { font-size:13px; color:#666; }
+  .save-bar .status.dirty { color:#C0392B; font-weight:600; }
+  .save-bar .status.saved { color:#1E8E3E; }
+  .small-regen { padding:6px 12px; font-size:12px; }
+</style>
+</head>
+<body>
+<div class="brand-bar">
+  <div class="logo-hex"></div>
+  <div class="title">JURY ANALYST PIPELINE</div>
+  <div class="crumbs"></div>
+</div>
+
+<div class="app-shell">
+
+  <h1>Phase 3 — Report</h1>
+  <p class="muted">Generate AI-written strategic prose for each section, edit any block before publishing, untick any section you want to omit from the PDF, then re-render and download.</p>
+  <p class="small"><strong>Case:</strong> <span id="case-id-label">—</span></p>
+
+  <div id="notice" class="notice" style="display:none"></div>
+
+  <div class="card">
+    <h3>Generate report</h3>
+    <p class="small muted">First-time generation calls Claude for every section. This typically takes 30–90 seconds depending on the number of facts.</p>
+    <div class="btn-row">
+      <button class="btn" id="generate-all-btn">Generate All Sections</button>
+      <button class="btn secondary" id="download-pdf-btn" disabled>Download PDF</button>
+    </div>
+  </div>
+
+  <div id="sections-wrap" style="display:none">
+    <div class="card">
+      <h3>Sections</h3>
+      <p class="small muted">Edit any text below. Untick "Include in PDF" to omit a section. Click "Save Edits &amp; Re-render PDF" when you're done — the PDF will rebuild with your changes. Click "Regenerate" on any section to get a fresh AI version (this overwrites your edits to that section).</p>
+      <div id="sections-list"></div>
+
+      <div class="save-bar">
+        <div class="status" id="save-status">No unsaved changes.</div>
+        <div style="display:flex; gap:8px;">
+          <button class="btn" id="save-render-btn">Save Edits &amp; Re-render PDF</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script src="/static/app.js"></script>
+<script>
+renderCrumbs("3");
+
+const caseId = getCaseId();
+if (!caseId) { window.location.href = "/"; }
+document.getElementById("case-id-label").textContent = caseId;
+
+const SECTION_LABELS = {
+  exec_summary: "Executive Summary",
+  juror_profiles: "Juror Profiles & Predictors",
+  voir_dire: "Voir Dire Strategy",
+  narrative_themes: "Open-Ended: What Jurors Think Happened",
+  evidence_gap_themes: "Open-Ended: Evidence Gaps",
+  unanswered_themes: "Open-Ended: Unanswered Questions",
+};
+
+function sectionLabel(key) {
+  if (key in SECTION_LABELS) return SECTION_LABELS[key];
+  if (key.startsWith("fact_insight_")) {
+    return `Fact ${key.split("_").pop()} — Strategic Insight`;
+  }
+  if (key.startsWith("discovery_summary_")) {
+    return `Auto-Discovered Question Summary (${key.replace("discovery_summary_","")})`;
+  }
+  return key;
+}
+
+// Holds {section_key: {text, included}} for everything in the UI.
+// Hydrated from /api/phase3/sections + /api/phase3/overrides.
+let sectionState = {};
+let isDirty = false;
+
+function markDirty() {
+  isDirty = true;
+  const s = document.getElementById("save-status");
+  s.textContent = "Unsaved edits — click 'Save Edits & Re-render PDF' to update the PDF.";
+  s.className = "status dirty";
+  document.getElementById("download-pdf-btn").disabled = true;
+}
+
+function markClean(msg) {
+  isDirty = false;
+  const s = document.getElementById("save-status");
+  s.textContent = msg || "Saved.";
+  s.className = "status saved";
+}
+
+async function loadSections() {
+  try {
+    const s = await api("GET", `/phase3/sections/${encodeURIComponent(caseId)}`);
+    if (!s || !Object.keys(s).length) return;
+
+    // Load any saved overrides (include/exclude flags) from prior session if present
+    let overrides = {};
+    try {
+      const o = await api("GET", `/phase3/overrides/${encodeURIComponent(caseId)}`);
+      if (o && o.skip) overrides = o;
+    } catch (_) { /* no overrides file yet — fine */ }
+
+    const skipped = new Set(overrides.skip || []);
+    sectionState = {};
+    for (const [key, text] of Object.entries(s)) {
+      // section_callouts is a JSON dict, not user-editable prose — skip it from the editor entirely
+      if (key === "section_callouts") continue;
+      sectionState[key] = {
+        text: text || "",
+        included: !skipped.has(key),
+      };
+    }
+
+    renderSections();
+    document.getElementById("sections-wrap").style.display = "block";
+    document.getElementById("download-pdf-btn").disabled = false;
+    markClean("Loaded from saved session.");
+  } catch (e) {
+    // No sections yet — that's fine
+  }
+}
+
+function renderSections() {
+  const wrap = document.getElementById("sections-list");
+  wrap.innerHTML = "";
+
+  // Stable ordering
+  const allKeys = Object.keys(sectionState);
+  const order = [
+    "exec_summary",
+    ...allKeys.filter(k => k.startsWith("fact_insight_"))
+      .sort((a, b) => parseInt(a.split("_").pop(), 10) - parseInt(b.split("_").pop(), 10)),
+    "juror_profiles", "voir_dire",
+    "narrative_themes", "evidence_gap_themes", "unanswered_themes",
+    ...allKeys.filter(k => k.startsWith("discovery_summary_")).sort(),
+  ].filter(k => k in sectionState);
+
+  for (const key of order) {
+    wrap.appendChild(renderTile(key));
+  }
+}
+
+function renderTile(key) {
+  const state = sectionState[key];
+  const tile = el("div", { className: "section-tile" + (state.included ? "" : " skipped"), id: `tile-${key}` });
+
+  const head = el("div", { className: "head" });
+  head.appendChild(el("h4", {}, sectionLabel(key)));
+
+  const controls = el("div", { className: "controls" });
+
+  // Include checkbox
+  const includeLabel = el("label", { className: "skip-toggle" });
+  const cb = el("input", { type: "checkbox" });
+  cb.checked = state.included;
+  cb.addEventListener("change", () => {
+    state.included = cb.checked;
+    tile.classList.toggle("skipped", !cb.checked);
+    markDirty();
+  });
+  includeLabel.appendChild(cb);
+  includeLabel.appendChild(document.createTextNode(" Include in PDF"));
+  controls.appendChild(includeLabel);
+
+  const regenBtn = el("button", { className: "btn secondary small-regen" }, "Regenerate");
+  regenBtn.addEventListener("click", () => regenerateSection(key, regenBtn));
+  controls.appendChild(regenBtn);
+
+  head.appendChild(controls);
+  tile.appendChild(head);
+
+  const ta = el("textarea", { id: `ta-${key}` });
+  ta.value = state.text || "";
+  ta.addEventListener("input", () => {
+    state.text = ta.value;
+    markDirty();
+  });
+  tile.appendChild(ta);
+
+  return tile;
+}
+
+async function regenerateSection(key, btn) {
+  if (isDirty) {
+    if (!confirm("You have unsaved edits. Regenerating this section will keep your other edits in memory, but this section will be overwritten by a fresh AI version. Continue?")) {
+      return;
+    }
+  }
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Regenerating…';
+  try {
+    await api("POST", "/phase3/generate", { case_id: caseId, regenerate_sections: [key] });
+    const s = await api("GET", `/phase3/sections/${encodeURIComponent(caseId)}`);
+    if (s[key] !== undefined) {
+      sectionState[key].text = s[key];
+      const ta = document.getElementById(`ta-${key}`);
+      if (ta) ta.value = s[key];
+    }
+    showNotice(`Regenerated ${sectionLabel(key)}.`, "success");
+    setTimeout(hideNotice, 2500);
+  } catch (e) {
+    showNotice(`Regenerate failed: ${e.message}`, "error");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Regenerate";
+  }
+}
+
+document.getElementById("generate-all-btn").addEventListener("click", async () => {
+  hideNotice();
+  if (isDirty) {
+    if (!confirm("You have unsaved edits. Regenerating all sections will reset everything to fresh AI output. Continue?")) {
+      return;
+    }
+  }
+  const btn = document.getElementById("generate-all-btn");
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Generating (this can take ~60s)…';
+  try {
+    await api("POST", "/phase3/generate", { case_id: caseId, regenerate_sections: null });
+    await loadSections();
+    showNotice("All sections generated.", "success");
+    setTimeout(hideNotice, 2500);
+  } catch (e) {
+    showNotice("Generation failed: " + e.message, "error");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Regenerate All Sections";
+  }
+});
+
+document.getElementById("save-render-btn").addEventListener("click", async () => {
+  hideNotice();
+  const btn = document.getElementById("save-render-btn");
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Saving & rendering…';
+
+  // Build payload: edits dict + skip list
+  const edits = {};
+  const skip = [];
+  for (const [key, state] of Object.entries(sectionState)) {
+    edits[key] = state.text || "";
+    if (!state.included) skip.push(key);
+  }
+
+  try {
+    await api("POST", `/phase3/overrides/${encodeURIComponent(caseId)}`, { edits, skip });
+    markClean("Edits saved · PDF re-rendered.");
+    document.getElementById("download-pdf-btn").disabled = false;
+  } catch (e) {
+    showNotice("Save failed: " + e.message, "error");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Save Edits & Re-render PDF";
+  }
+});
+
+document.getElementById("download-pdf-btn").addEventListener("click", () => {
+  if (isDirty) {
+    if (!confirm("You have unsaved edits. The PDF will NOT include them unless you click 'Save Edits & Re-render PDF' first. Continue with the un-edited PDF?")) {
+      return;
+    }
+  }
+  window.location.href = `/api/phase3/download/${encodeURIComponent(caseId)}`;
+});
+
+loadSections();
+</script>
+</body>
+</html>
