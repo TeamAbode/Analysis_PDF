@@ -1,0 +1,30 @@
+# Render Blueprint — one-file hosting config for the Jury Analyst Pipeline.
+#
+# In Render: New + > Blueprint > connect this repo. Render reads this file,
+# builds the Docker image, and asks you to fill in the secret values below.
+#
+# Docs: https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: jury-analyst
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter            # smallest paid tier; "free" also works for testing
+    healthCheckPath: /healthz
+    autoDeploy: true         # redeploy automatically on every push to the branch
+    envVars:
+      # Render injects PORT automatically; app.py reads it.
+      - key: HOST
+        value: 0.0.0.0
+
+      # The firm's Anthropic API key. Paste it in the Render dashboard — it is
+      # NOT stored in the repo. (sync: false = prompt for it, keep it secret.)
+      - key: ANTHROPIC_API_KEY
+        sync: false
+
+      # Optional password gate. Leave blank for an open link (anyone with the
+      # URL can use it). Set a value any time to require a password — no code
+      # change or redeploy of code needed, just update this variable.
+      - key: APP_PASSWORD
+        sync: false

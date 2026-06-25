@@ -1,6 +1,9 @@
 # Jury Analyst Pipeline
 
-Three-phase local tool for turning Alchemer mock-juror exports into branded PDF reports.
+Three-phase tool for turning Alchemer mock-juror exports into branded PDF reports.
+
+Run it locally (see Quick start) or **host it online so anyone with the link can
+use it in a browser — no install** (see [DEPLOY.md](DEPLOY.md)).
 
 ## Setup for a new computer (do this once)
 
