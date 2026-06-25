@@ -2,11 +2,39 @@
 
 Three-phase local tool for turning Alchemer mock-juror exports into branded PDF reports.
 
+## Setup for a new computer (do this once)
+
+Before the one-click launcher will work on a fresh Mac, that machine needs a
+few free things that the app depends on. The launcher checks for each of these
+and will tell you exactly what's missing, but installing them up front is
+smoother:
+
+1. **Python 3** — open Terminal and run `xcode-select --install` (or download
+   from https://www.python.org/downloads/).
+2. **Homebrew + PDF libraries** — the PDF engine (WeasyPrint) needs system
+   libraries pip can't install. Install Homebrew from https://brew.sh, then run:
+   ```bash
+   brew install pango cairo gdk-pixbuf libffi
+   ```
+3. **An Anthropic API key** — get one at https://console.anthropic.com/ (it
+   looks like `sk-ant-...`). You'll paste it in on first launch.
+
 ## Quick start
 
-**Easiest (one click):** Double-click `start.command` in Finder. The first run will set up a virtual environment and install dependencies automatically (about 30 seconds), then open the app in your browser. After that, it's instant — close the Terminal window to stop the server.
+**Easiest (one click):** Double-click `start.command` in Finder. The first run
+sets up a virtual environment and installs dependencies automatically (about
+30–60 seconds), then opens the app in your browser. After that it's instant —
+close the Terminal window to stop the server.
 
-First-time only: when prompted, paste your Anthropic API key into `.env` and re-run.
+> **First time on a new Mac:** macOS may say the file *"can't be opened because
+> it is from an unidentified developer."* That's Gatekeeper, not a real problem.
+> **Right-click `start.command` → Open → Open** (just once). After that,
+> double-clicking works normally.
+
+First-time only: when prompted, paste your Anthropic API key into `.env` and
+re-run.
+
+**Windows:** double-click `start.bat` instead (same behavior).
 
 **Manual (terminal):**
 
@@ -23,6 +51,29 @@ python app.py
 
 # 4. Open http://localhost:8765 in your browser
 ```
+
+## Troubleshooting
+
+**"could not be executed because you do not have appropriate access
+privileges"** — the launcher lost its executable permission (this happens if
+files were uploaded through GitHub's web UI or copied without preserving
+permissions). Fix it once in Terminal:
+```bash
+cd /path/to/this/folder
+chmod +x start.command
+```
+Then double-click again. (This repo now stores the executable bit, so a fresh
+`git clone` won't have this problem — it mainly affects copies made the old way.)
+
+**"can't be opened because it is from an unidentified developer"** —
+right-click `start.command` → **Open** → **Open**. One time only.
+
+**PDF download fails / WeasyPrint error** — the native libraries are missing.
+Run `brew install pango cairo gdk-pixbuf libffi`, then open a new Terminal and
+relaunch.
+
+**"ANTHROPIC_API_KEY not set"** — open `.env` in this folder and paste your key
+after `ANTHROPIC_API_KEY=`, save, and relaunch.
 
 ## Workflow
 
