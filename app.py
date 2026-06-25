@@ -22,6 +22,7 @@ All per-case files live under workspace/<case_id>/.
 """
 from __future__ import annotations
 import json
+import os
 import re
 import shutil
 from pathlib import Path
@@ -51,6 +52,48 @@ STATIC.mkdir(exist_ok=True)
 
 app = FastAPI(title="Jury Analyst Pipeline")
 
+
+# ---------------------------------------------------------------------------
+# Optional access gate
+# ---------------------------------------------------------------------------
+# By default the app is open to anyone with the link. Because all runs are
+# billed to the firm's single API key, you can lock it at any time WITHOUT a
+# code change: set an environment variable APP_PASSWORD on the host. When set,
+# the browser asks for a username (anything) + that password once per session.
+# Leave it unset for open access.
+
+import base64
+import secrets as _secrets
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response as _Response
+
+_APP_PASSWORD = os.environ.get("APP_PASSWORD", "").strip()
+
+
+class _PasswordGate(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        # Always allow the health check through so the host can verify the
+        # service is up even when a password is set.
+        if not _APP_PASSWORD or request.url.path == "/healthz":
+            return await call_next(request)
+        header = request.headers.get("authorization", "")
+        if header.startswith("Basic "):
+            try:
+                decoded = base64.b64decode(header[6:]).decode("utf-8", "ignore")
+                _, _, supplied = decoded.partition(":")
+                if _secrets.compare_digest(supplied, _APP_PASSWORD):
+                    return await call_next(request)
+            except Exception:
+                pass
+        return _Response(
+            status_code=401,
+            headers={"WWW-Authenticate": 'Basic realm="Jury Analyst Pipeline"'},
+            content="Authentication required.",
+        )
+
+
+app.add_middleware(_PasswordGate)
+
 # Serve frontend and static
 app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
 app.mount("/frontend", StaticFiles(directory=str(FRONTEND)), name="frontend")
@@ -77,6 +120,12 @@ def _ensure_exists(p: Path, what: str):
 # ---------------------------------------------------------------------------
 # Frontend routes
 # ---------------------------------------------------------------------------
+
+@app.get("/healthz")
+def healthz():
+    """Unauthenticated liveness check for the hosting platform."""
+    return {"status": "ok"}
+
 
 @app.get("/", response_class=HTMLResponse)
 def index():
@@ -668,8 +717,13 @@ def download_report(case_id: str):
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
+    import os
     import uvicorn
+    # Local default is 127.0.0.1:8765 (used by start.command). When hosted,
+    # the platform sets PORT, and HOST=0.0.0.0 lets it accept outside traffic.
+    host = os.environ.get("HOST", "127.0.0.1")
+    port = int(os.environ.get("PORT", "8765"))
     print("=" * 60)
-    print("Jury Analyst Pipeline — http://localhost:8765")
+    print(f"Jury Analyst Pipeline — http://{host}:{port}")
     print("=" * 60)
-    uvicorn.run("app:app", host="127.0.0.1", port=8765, reload=False)
+    uvicorn.run("app:app", host=host, port=port, reload=False)
