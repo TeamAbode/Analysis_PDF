@@ -70,6 +70,16 @@ else
   source .venv/bin/activate
 fi
 
+# --- Help Python find the Homebrew libraries (macOS) ---
+# WeasyPrint loads Pango/Cairo/gdk-pixbuf at runtime via ctypes, but macOS does
+# NOT search Homebrew's lib folder by default — so even when the libraries are
+# installed, the import fails. Pointing DYLD_FALLBACK_LIBRARY_PATH at Homebrew's
+# lib directory fixes it. (Apple Silicon: /opt/homebrew/lib, Intel: /usr/local/lib)
+if command -v brew >/dev/null 2>&1; then
+  BREW_LIB="$(brew --prefix)/lib"
+  export DYLD_FALLBACK_LIBRARY_PATH="$BREW_LIB:${DYLD_FALLBACK_LIBRARY_PATH:-}"
+fi
+
 # --- Preflight: WeasyPrint needs native libraries (Pango/Cairo/gdk-pixbuf) ---
 # These are NOT installable with pip. On a fresh Mac they're usually missing,
 # which would make PDF rendering fail later with a confusing error. Catch it
