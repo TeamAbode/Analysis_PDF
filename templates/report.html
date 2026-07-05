@@ -565,6 +565,69 @@ hr.rule { border: none; border-top: 1pt solid var(--ja-rule); margin: 12pt 0; }
   <div class="caption">Figure 8. Award Distribution{% if section_callouts.caption_award_distribution %} — <em>{{ section_callouts.caption_award_distribution }}</em>{% endif %}</div>
 </div>
 
+{% if compensation.reconciliation %}
+{% set rec = compensation.reconciliation %}
+<h3>Award Reconciliation &amp; A/B Comparison</h3>
+<p>Each respondent gave the damages amount twice — once as a number and once spelled out in words. To keep only reliable answers, both are parsed and a respondent is kept <strong>only when the two answers agree</strong> (within {{ rec.tol_pct }}%); answers that disagree or can't be read are dropped. This cleaning is done separately for each A/B branch{% if rec.variant_col %} (assignment column: <em>{{ rec.variant_col }}</em>){% endif %}, and the cleaned awards are then compared. All Compensation figures above are based on this cleaned data.</p>
+
+<table class="data">
+  <thead><tr><th>Branch</th><th>Assigned</th><th>Answered both</th><th>Kept (agree)</th><th>Dropped</th><th>% kept</th></tr></thead>
+  <tbody>
+  {% for b in rec.branches %}
+    <tr>
+      <td>{{ b.label }}</td>
+      <td>{{ b.n_assigned if b.n_assigned is not none else "—" }}</td>
+      <td>{{ b.n_both }}</td>
+      <td>{{ b.n_clean }}</td>
+      <td>{{ b.n_dropped }} <span class="small muted">({{ b.n_mismatch }} disagree, {{ b.n_unverifiable }} unreadable)</span></td>
+      <td>{{ b.pct_matched if b.pct_matched is not none else "—" }}%</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<h4>Cleaned award amounts by branch</h4>
+<table class="data">
+  <thead><tr><th>Branch</th><th>N</th><th>Mean</th><th>Median</th><th>Min</th><th>Max</th><th>Std. Dev.</th></tr></thead>
+  <tbody>
+  {% for b in rec.branches %}
+    <tr>
+      <td>{{ b.label }}</td>
+      <td>{{ b.n_clean }}</td>
+      <td class="numeric">{{ b.mean }}</td>
+      <td class="numeric">{{ b.median }}</td>
+      <td class="numeric">{{ b.min }}</td>
+      <td class="numeric">{{ b.max }}</td>
+      <td class="numeric">{{ b.std }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+{% if rec.comparison %}
+{% set c = rec.comparison %}
+<div class="takeaway" style="margin-top:14px;">
+  <strong>Branch {{ c.a }} vs Branch {{ c.b }} (cleaned awards):</strong>
+  mean {{ c.mean_a }} vs {{ c.mean_b }} (difference {{ c.mean_diff }}); median {{ c.median_a }} vs {{ c.median_b }} (difference {{ c.median_diff }}).
+  {% if c.p_value is not none %}<br>{{ c.test }}: p = {{ c.p_value }} — {% if c.significant %}<strong style="color:var(--ja-secondary, #0073DF);">a statistically significant difference</strong> between branches.{% else %}not a statistically significant difference.{% endif %}{% endif %}
+</div>
+{% endif %}
+
+{% for b in rec.branches %}
+  {% if b.mismatch_examples %}
+  <p class="small muted" style="margin-top:10px;"><strong>{{ b.label }} — sample of dropped (disagreeing) answers:</strong></p>
+  <table class="data">
+    <thead><tr><th>Numeric field</th><th>Spelled-out field</th><th>Parsed number</th><th>Parsed words</th></tr></thead>
+    <tbody>
+    {% for ex in b.mismatch_examples %}
+      <tr><td class="small">{{ ex.numeric }}</td><td class="small">{{ ex.words }}</td><td class="numeric">{{ ex.parsed_numeric }}</td><td class="numeric">{{ ex.parsed_words }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+{% endfor %}
+{% endif %}
+
 {% if ab_analysis %}
 <h3>A/B Sampling Design — Slider vs. Open-Form</h3>
 <p>This case was fielded with an A/B sampling design: participants were randomly assigned to receive the damages question in one of two formats. <strong>Branch A</strong> answered with a slider (an anchor-style input). <strong>Branch B</strong> answered with an open-form numeric entry. Each respondent saw ONE format, not both — so this is a between-subjects comparison of how question framing influences the awards.</p>

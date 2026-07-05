@@ -554,7 +554,18 @@ def compute_compensation(df: pd.DataFrame, mapping: Optional[dict] = None) -> di
         schema.find_column(df, "total_compensation", mapping=mapping)
         or schema.find_column(df, "total_compensation_combined", mapping=mapping)
     )
-    comp = _numeric(df, comp_col)
+
+    # Reconciled A/B award path: when the survey captures the award as a numeric
+    # field + a spelled-out "in words" field (optionally per A/B branch), parse
+    # both, keep only respondents whose two answers agree, and use that cleaned
+    # award as the basis for all compensation figures. Falls back to the plain
+    # column when the paired pattern isn't present.
+    from . import award_reconcile
+    reconciliation = award_reconcile.reconcile_awards(df, mapping=mapping)
+    if reconciliation is not None:
+        comp = reconciliation.pop("combined_clean")
+    else:
+        comp = _numeric(df, comp_col)
     liable_col = schema.find_column(df, "liable", mapping=mapping)
     liable = df[liable_col].astype(str).str.strip().str.lower() if liable_col else pd.Series([""] * len(df))
 
@@ -636,6 +647,9 @@ def compute_compensation(df: pd.DataFrame, mapping: Optional[dict] = None) -> di
         # New A/B + case-value fields
         "ab_analysis": ab_analysis,
         "case_value": case_value_blocks,
+        # Reconciled per-branch award cleaning + A-vs-B comparison (None when the
+        # numeric+words paired-column pattern isn't present in this survey).
+        "award_reconciliation": reconciliation,
     }
 
 
