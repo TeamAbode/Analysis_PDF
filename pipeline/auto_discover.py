@@ -94,9 +94,6 @@ SYSTEM_COL_PATTERNS = [
     r"^Unnamed:?\s*\d*$",
     # Retired/earlier question wordings kept in the export for reference only.
     r"\[OLD VERSION\]",
-    # pandas-deduped duplicate columns (name.1, name.2, ...) from stacked
-    # exports — the original (unsuffixed) column already carries the data.
-    r"\.\d+$",
 ]
 
 # Stable, friendly label for binary-numeric columns whose header reads like a
@@ -145,6 +142,18 @@ def _known_canonical_cols(df: pd.DataFrame, mapping: Optional[dict] = None) -> s
         for role_entry in mapping["roles"].values():
             for c in role_entry.get("columns", []):
                 known.add(c)
+    # Per-branch damages award columns (numeric + spelled-out, incl. .1 twins)
+    # are reported in the Compensation section, so keep them out of discovery.
+    try:
+        from . import award_reconcile
+        found = award_reconcile.find_award_ab_columns(df, mapping=mapping)
+        if found:
+            for cols in found["branches"].values():
+                for c in (cols.get("amount"), cols.get("words")):
+                    if c:
+                        known.add(c)
+    except Exception:
+        pass
     return known
 
 

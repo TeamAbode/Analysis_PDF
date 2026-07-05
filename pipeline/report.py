@@ -545,6 +545,63 @@ def _route_discovered_section(rec: dict) -> str:
     return "additional"
 
 
+def format_award_reconciliation(recon: Optional[dict]) -> Optional[dict]:
+    """Format the award-reconciliation output (money strings, signed diffs) for
+    the report template. Returns None when reconciliation isn't present."""
+    def _money(v):
+        return f"${int(v):,}" if v is not None else "—"
+
+    def _money_signed(v):
+        if v is None:
+            return "—"
+        return ("+" if v >= 0 else "-") + f"${abs(int(v)):,}"
+
+    if not recon or not recon.get("branches"):
+        return None
+    branches_fmt = []
+    for key in sorted(recon["branches"]):
+        b = recon["branches"][key]
+        c = b["clean"]
+        branches_fmt.append({
+            "label": b["label"],
+            "n_assigned": b["n_assigned"],
+            "n_both": b["n_both_answered"],
+            "n_clean": c["n"],
+            "n_dropped": b["n_mismatch"] + b["n_unverifiable"],
+            "n_mismatch": b["n_mismatch"],
+            "n_unverifiable": b["n_unverifiable"],
+            "pct_matched": b["pct_matched"],
+            "mean": _money(c["mean"]), "median": _money(c["median"]),
+            "min": _money(c["min"]), "max": _money(c["max"]), "std": _money(c["std"]),
+            "mismatch_examples": [
+                {
+                    "numeric": ex["numeric"], "words": ex["words"],
+                    "parsed_numeric": _money(ex["parsed_numeric"]),
+                    "parsed_words": _money(ex["parsed_words"]),
+                }
+                for ex in b["mismatch_examples"]
+            ],
+        })
+    cmp = recon.get("comparison")
+    cmp_fmt = None
+    if cmp:
+        cmp_fmt = {
+            "a": cmp["a"], "b": cmp["b"],
+            "mean_a": _money(cmp["mean_a"]), "mean_b": _money(cmp["mean_b"]),
+            "median_a": _money(cmp["median_a"]), "median_b": _money(cmp["median_b"]),
+            "mean_diff": _money_signed(cmp["mean_diff"]),
+            "median_diff": _money_signed(cmp["median_diff"]),
+            "p_value": cmp["p_value"], "test": cmp["test"],
+            "significant": (cmp["p_value"] is not None and cmp["p_value"] < 0.05),
+        }
+    return {
+        "variant_col": recon.get("variant_col"),
+        "tol_pct": round(recon.get("rel_tol", 0.01) * 100, 1),
+        "branches": branches_fmt,
+        "comparison": cmp_fmt,
+    }
+
+
 def build_report_context(bundle: dict, ai_sections: dict) -> dict:
     """Combine the analysis bundle with the AI-generated prose into a single
     context dict for Jinja rendering."""
@@ -559,6 +616,9 @@ def build_report_context(bundle: dict, ai_sections: dict) -> dict:
 
     # Eggshell mean display
     comp_fmt["eggshell_mean_fmt"] = f"{comp.get('eggshell_mean'):.2f}" if comp.get("eggshell_mean") else "—"
+
+    # --- Award reconciliation (numeric vs. spelled-out, per A/B branch) ---
+    comp_fmt["reconciliation"] = format_award_reconciliation(comp.get("award_reconciliation"))
 
     # --- A/B analysis (sampling-design framework) ---
     ab = comp.get("ab_analysis") or {}
