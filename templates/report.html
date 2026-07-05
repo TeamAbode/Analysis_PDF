@@ -303,6 +303,68 @@ hr.rule { border: none; border-top: 1pt solid var(--ja-rule); margin: 12pt 0; }
   </div>
 </div>
 
+{# ---- Reusable renderer for an auto-discovered question ----
+   Used both by the routed subsections (Sections 4/5/6) and by Section 9. #}
+{% macro render_discovered(d) %}
+<div class="fact-block">
+  <h3>{{ d.label }}</h3>
+
+  {% if d.kind == "grouped_scale" %}
+    <p class="small muted">
+      Composite scale of {{ d.item_cols|length }} items.
+      Mean composite score: <strong>{{ d.stats.composite_mean }}</strong> (median: {{ d.stats.composite_median }}).
+      {% if d.stats.n_reverse_scored and d.stats.n_reverse_scored > 0 %}
+      <span style="color:var(--ja-secondary, #0073DF);"><strong>{{ d.stats.n_reverse_scored }} of {{ d.stats.n_items or d.item_cols|length }} items reverse-scored (R)</strong></span> — items whose wording points opposite to the rest of the scale are flipped before averaging.
+      {% endif %}
+    </p>
+    {% if d.items_display %}
+    <table class="data">
+      <thead><tr><th style="width:60%">Item</th><th>Item Mean</th><th>Reverse?</th></tr></thead>
+      <tbody>
+      {% for it in d.items_display %}
+        <tr>
+          <td class="small">{{ it.label }}{% if it.reverse %} <strong style="color:var(--ja-secondary, #0073DF);">(R)</strong>{% endif %}</td>
+          <td class="numeric">{{ it.mean if it.mean is not none else "—" }}</td>
+          <td class="small">{% if it.reverse %}reverse-scored{% if it.manual %} (manual){% endif %}{% else %}—{% endif %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+    {% if d.chart_path %}
+    <div class="chart">
+      <img src="{{ d.chart_path }}" alt="{{ d.label }}">
+      <div class="caption">Per-item means for the {{ d.prefix }} scale.</div>
+    </div>
+    {% endif %}
+
+  {% elif d.kind == "binary" %}
+    <p>{{ d.stats.pct_yes }}% answered Yes ({{ d.stats.yes_count }} respondents); {{ 100 - d.stats.pct_yes }}% answered No ({{ d.stats.no_count }} respondents). N = {{ d.n }}.</p>
+    {% if d.chart_path %}<div class="chart"><img src="{{ d.chart_path }}" alt="{{ d.label }}"></div>{% endif %}
+
+  {% elif d.kind == "numeric_likert" %}
+    <p>Mean: <strong>{{ d.stats.mean }}</strong> · Median: {{ d.stats.median }} · Range: {{ d.stats.min }} – {{ d.stats.max }}. N = {{ d.n }}.</p>
+    {% if d.chart_path %}<div class="chart"><img src="{{ d.chart_path }}" alt="{{ d.label }}"></div>{% endif %}
+
+  {% elif d.kind == "categorical" %}
+    <p class="small muted">N = {{ d.n }}.</p>
+    <table class="data">
+      <thead><tr><th>Response</th><th>N</th><th>%</th></tr></thead>
+      <tbody>
+      {% for label, n in (d.stats.counts.items() | sort(attribute=1, reverse=True)) %}
+        <tr><td>{{ label }}</td><td>{{ n }}</td><td>{{ d.stats.pct.get(label, 0) }}%</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% if d.chart_path %}<div class="chart"><img src="{{ d.chart_path }}" alt="{{ d.label }}"></div>{% endif %}
+
+  {% elif d.kind == "free_text" %}
+    <p class="small muted">{{ d.stats.n_responses }} substantive responses (average length: {{ d.stats.avg_length }} characters). Themes summarized below.</p>
+    {{ d.summary_html | safe }}
+  {% endif %}
+</div>
+{% endmacro %}
+
 <!-- ============== 1. EXECUTIVE SUMMARY ============== -->
 <h2>1. Executive Summary</h2>
 
@@ -480,6 +542,12 @@ hr.rule { border: none; border-top: 1pt solid var(--ja-rule); margin: 12pt 0; }
 {% endif %}
 {% endfor %}
 
+{% if discovered_by_section.verdict %}
+<h3>Party Sentiment</h3>
+<p class="small muted">Supplemental survey scales measuring how jurors feel toward the parties.</p>
+{% for d in discovered_by_section.verdict %}{{ render_discovered(d) }}{% endfor %}
+{% endif %}
+
 <!-- ============== 5. COMPENSATION ============== -->
 <h2>5. Compensation Analysis</h2>
 {% if section_callouts.takeaway_compensation %}<div class="takeaway">{{ section_callouts.takeaway_compensation }}</div>{% endif %}
@@ -609,6 +677,12 @@ hr.rule { border: none; border-top: 1pt solid var(--ja-rule); margin: 12pt 0; }
 </div>
 {% endif %}
 
+{% if discovered_by_section.compensation %}
+<h3>Supplemental Compensation Measures</h3>
+<p class="small muted">Additional damages- and deservingness-related questions from the survey.</p>
+{% for d in discovered_by_section.compensation %}{{ render_discovered(d) }}{% endfor %}
+{% endif %}
+
 <!-- ============== 6. JUROR PROFILES & PREDICTIVE INDICATORS ============== -->
 <h2>6. Juror Profiles &amp; Predictive Indicators</h2>
 {% if section_callouts.takeaway_predictors %}<div class="takeaway">{{ section_callouts.takeaway_predictors }}</div>{% endif %}
@@ -631,6 +705,12 @@ hr.rule { border: none; border-top: 1pt solid var(--ja-rule); margin: 12pt 0; }
 {% endif %}
 
 {{ juror_profiles_html | safe }}
+
+{% if discovered_by_section.predictors %}
+<h3>Supplemental Attitude &amp; Trait Scales</h3>
+<p class="small muted">Additional psychographic and attitudinal scales found in the survey that bear on juror lean.</p>
+{% for d in discovered_by_section.predictors %}{{ render_discovered(d) }}{% endfor %}
+{% endif %}
 
 <!-- ============== 7. VOIR DIRE ============== -->
 {% if voir_dire_html %}
@@ -677,69 +757,11 @@ hr.rule { border: none; border-top: 1pt solid var(--ja-rule); margin: 12pt 0; }
 {% endif %}{# end Section 8 wrapper #}
 
 <!-- ============== 9. ADDITIONAL SURVEY QUESTIONS ============== -->
-{% if discovered_questions %}
+{% if discovered_by_section.additional %}
 <h2>9. Additional Survey Questions</h2>
-<p>This section summarizes case-specific or supplemental questions found in the survey export that fall outside the standard variable set. Each is presented with its question text, a brief summary or chart of responses, and (for narrative questions) the key themes that emerged.</p>
+<p>This section summarizes case-specific or supplemental questions found in the survey export that fall outside the standard variable set and aren't already reported alongside a related section above. Each is presented with its question text, a brief summary or chart of responses, and (for narrative questions) the key themes that emerged.</p>
 
-{% for d in discovered_questions %}
-<div class="fact-block">
-  <h3>{{ d.label }}</h3>
-
-  {% if d.kind == "grouped_scale" %}
-    <p class="small muted">
-      Composite scale of {{ d.item_cols|length }} items.
-      Mean composite score: <strong>{{ d.stats.composite_mean }}</strong> (median: {{ d.stats.composite_median }}).
-      {% if d.stats.n_reverse_scored and d.stats.n_reverse_scored > 0 %}
-      <span style="color:var(--ja-secondary, #0073DF);"><strong>{{ d.stats.n_reverse_scored }} of {{ d.stats.n_items or d.item_cols|length }} items reverse-scored (R)</strong></span> — items whose wording points opposite to the rest of the scale are flipped before averaging.
-      {% endif %}
-    </p>
-    {% if d.items_display %}
-    <table class="data">
-      <thead><tr><th style="width:60%">Item</th><th>Item Mean</th><th>Reverse?</th></tr></thead>
-      <tbody>
-      {% for it in d.items_display %}
-        <tr>
-          <td class="small">{{ it.label }}{% if it.reverse %} <strong style="color:var(--ja-secondary, #0073DF);">(R)</strong>{% endif %}</td>
-          <td class="numeric">{{ it.mean if it.mean is not none else "—" }}</td>
-          <td class="small">{% if it.reverse %}reverse-scored{% if it.manual %} (manual){% endif %}{% else %}—{% endif %}</td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
-    {% endif %}
-    {% if d.chart_path %}
-    <div class="chart">
-      <img src="{{ d.chart_path }}" alt="{{ d.label }}">
-      <div class="caption">Per-item means for the {{ d.prefix }} scale.</div>
-    </div>
-    {% endif %}
-
-  {% elif d.kind == "binary" %}
-    <p>{{ d.stats.pct_yes }}% answered Yes ({{ d.stats.yes_count }} respondents); {{ 100 - d.stats.pct_yes }}% answered No ({{ d.stats.no_count }} respondents). N = {{ d.n }}.</p>
-    {% if d.chart_path %}<div class="chart"><img src="{{ d.chart_path }}" alt="{{ d.label }}"></div>{% endif %}
-
-  {% elif d.kind == "numeric_likert" %}
-    <p>Mean: <strong>{{ d.stats.mean }}</strong> · Median: {{ d.stats.median }} · Range: {{ d.stats.min }} – {{ d.stats.max }}. N = {{ d.n }}.</p>
-    {% if d.chart_path %}<div class="chart"><img src="{{ d.chart_path }}" alt="{{ d.label }}"></div>{% endif %}
-
-  {% elif d.kind == "categorical" %}
-    <p class="small muted">N = {{ d.n }}.</p>
-    <table class="data">
-      <thead><tr><th>Response</th><th>N</th><th>%</th></tr></thead>
-      <tbody>
-      {% for label, n in (d.stats.counts.items() | sort(attribute=1, reverse=True)) %}
-        <tr><td>{{ label }}</td><td>{{ n }}</td><td>{{ d.stats.pct.get(label, 0) }}%</td></tr>
-      {% endfor %}
-      </tbody>
-    </table>
-    {% if d.chart_path %}<div class="chart"><img src="{{ d.chart_path }}" alt="{{ d.label }}"></div>{% endif %}
-
-  {% elif d.kind == "free_text" %}
-    <p class="small muted">{{ d.stats.n_responses }} substantive responses (average length: {{ d.stats.avg_length }} characters). Themes summarized below.</p>
-    {{ d.summary_html | safe }}
-  {% endif %}
-</div>
-{% endfor %}
+{% for d in discovered_by_section.additional %}{{ render_discovered(d) }}{% endfor %}
 {% endif %}
 
 <hr class="rule">

@@ -504,6 +504,47 @@ TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "templates"
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
 
+# ---------------------------------------------------------------------------
+# Section routing for auto-discovered questions
+# ---------------------------------------------------------------------------
+# By default every discovered question lands in Section 9. This routes the ones
+# that clearly belong to an existing section (party sentiment -> Verdict &
+# Liability; trait/attitude scales -> Juror Profiles & Predictors; compensation
+# measures -> Compensation) so the report reads coherently. Anything that isn't
+# a confident match stays in Section 9 (the safe default).
+
+DISCOVERY_SECTIONS = ("verdict", "compensation", "predictors", "additional")
+
+
+def _route_discovered_section(rec: dict) -> str:
+    parts = [str(rec.get("label", "")), str(rec.get("prefix", ""))]
+    parts += [str(c) for c in rec.get("item_cols", [])]
+    if rec.get("column"):
+        parts.append(str(rec["column"]))
+    hay = " ".join(parts).lower()
+
+    def has(*terms) -> bool:
+        return any(t in hay for t in terms)
+
+    # A/B design / variant flags are not survey content — keep in Section 9.
+    if has("a/b", "split test", "split testing", "variant"):
+        return "additional"
+    # How jurors feel about a party -> Verdict & Liability (Section 4).
+    if has("sentiment", "feel about", "feelings about", "sympathy for",
+           "how you feel about", "plaintiff_sentiment", "defendant_sentiment"):
+        return "verdict"
+    # Juror trait / attitude scales -> Juror Profiles & Predictors (Section 6).
+    if has("authoritarian", "just world", "belief in a just",
+           "corporate accountability", "institutional responsib", "eggshell",
+           "lawsuit", "tort reform", "lawsuit abuse", "litigation attitud",
+           "damage limits", "skepticism", "corporate", "accountability"):
+        return "predictors"
+    # Compensation / deservingness supplemental measures -> Compensation (Sec 5).
+    if has("compensation", "deserv", "damage award", "payout", "how much money"):
+        return "compensation"
+    return "additional"
+
+
 def build_report_context(bundle: dict, ai_sections: dict) -> dict:
     """Combine the analysis bundle with the AI-generated prose into a single
     context dict for Jinja rendering."""
@@ -643,7 +684,14 @@ def build_report_context(bundle: dict, ai_sections: dict) -> dict:
                     "corr":     it.get("corr_with_rest"),
                 })
             rec_copy["items_display"] = items_display
+        rec_copy["report_section"] = _route_discovered_section(rec_copy)
         discovered_with_html.append(rec_copy)
+
+    # Bucket discovered questions by their routed section for the template.
+    discovered_by_section = {s: [] for s in DISCOVERY_SECTIONS}
+    for rec in discovered_with_html:
+        target = rec.get("report_section", "additional")
+        discovered_by_section.get(target, discovered_by_section["additional"]).append(rec)
 
     return {
         "case": bundle["case_metadata"],
@@ -673,6 +721,7 @@ def build_report_context(bundle: dict, ai_sections: dict) -> dict:
         "unanswered_themes_html": section_html(ai_sections.get("unanswered_themes", ""), "unanswered-question themes"),
         "section_callouts": callouts,
         "discovered_questions": discovered_with_html,
+        "discovered_by_section": discovered_by_section,
     }
 
 

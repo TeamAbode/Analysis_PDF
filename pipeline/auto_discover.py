@@ -87,6 +87,16 @@ SYSTEM_COL_PATTERNS = [
     # "Past Medical Expenses: $164,642.86..." text) — these are display-only
     # blocks Alchemer attaches to the rating question, not standalone data.
     r"Based on the information provided, please rate the level of compensation",
+    # Alchemer page/URL automation columns — timing and redirects, no content.
+    r"Page Timer$",
+    r"^New URL Redirect$", r"URL Redirect$",
+    # Trailing empty column from a stray comma in the export header.
+    r"^Unnamed:?\s*\d*$",
+    # Retired/earlier question wordings kept in the export for reference only.
+    r"\[OLD VERSION\]",
+    # pandas-deduped duplicate columns (name.1, name.2, ...) from stacked
+    # exports — the original (unsuffixed) column already carries the data.
+    r"\.\d+$",
 ]
 
 # Stable, friendly label for binary-numeric columns whose header reads like a
@@ -269,8 +279,13 @@ def _classify_column(col: str, series: pd.Series) -> Optional[dict]:
 # passes don't re-claim them.
 #
 # Pass A: number-suffix groups       (Authoritarian1..Authoritarian4)  threshold ≥ 3
-# Pass B: shared `:alias` suffix     (...:plaintiff_perception)        threshold ≥ 2
-# Pass C: NAMED_SCALES registry      (case-specific named groupings)   threshold ≥ 2
+# Pass B: shared colon-title battery (...:plaintiff_sentiment, or a full   threshold ≥ 2
+#         question-sentence title like the AutoZone block)
+# Pass C: NAMED_SCALES registry      (case-specific named groupings)     threshold ≥ 2
+#
+# A battery survives even if one item won't coerce to numeric (free-text bleed):
+# the bad item is dropped and the scale is built from the remaining items,
+# provided at least two are valid.
 #
 # Items are coerced to numeric (handling Likert text via schema mappings) before
 # being averaged. Items whose item-total correlation is strongly negative are
@@ -278,6 +293,51 @@ def _classify_column(col: str, series: pd.Series) -> Optional[dict]:
 
 GROUP_NUMERIC_SUFFIX = re.compile(r"^(.+?)(\d+)$")
 COLON_ALIAS_SUFFIX = re.compile(r":([A-Za-z][A-Za-z0-9_]+)\s*$")
+
+# Colon-title grouping (Pass B). Alchemer names matrix sub-questions
+# "<item text>:<question title>", and every item in the same battery shares an
+# identical question title. Grouping by that title catches both short tags
+# (":TIPI", ":plaintiff_sentiment") and full-sentence titles (the AutoZone
+# "…please rate how you feel about the Defendant AutoZone" battery), which the
+# old single-word-alias regex missed.
+
+# Titles that belong to scales handled elsewhere (canonical/system) — never
+# group these here even if they slip into the candidate list.
+_EXCLUDE_COLON_TITLES = {
+    "responsibility", "tipi", "global_belief_in_a_just_world",
+    "litigation_attitudes", "single_item",
+}
+
+
+def _colon_title(col: str) -> Optional[str]:
+    """Return the Alchemer question title (text after the FIRST colon), cleaned,
+    or None if the column has no colon."""
+    if ":" not in col:
+        return None
+    return _clean_label(col.split(":", 1)[1])
+
+
+def _colon_title_key(col: str) -> Optional[str]:
+    """Normalized grouping key for a colon-title column."""
+    title = _colon_title(col)
+    if not title:
+        return None
+    key = re.sub(r"\s+", " ", title).strip().lower()
+    return key or None
+
+
+def _scale_label_from_title(title: str) -> tuple[str, str]:
+    """Derive (display_label, short_prefix) from a shared colon title.
+
+    Single-word tags ('plaintiff_sentiment') become 'Plaintiff Sentiment';
+    long sentence titles are trimmed so chart titles and labels stay readable."""
+    title = re.sub(r"\s+", " ", title).strip()
+    if re.fullmatch(r"[A-Za-z][A-Za-z0-9_]+", title):
+        nice = title.replace("_", " ").title()
+        return nice, nice
+    label = title if len(title) <= 60 else title[:59].rstrip() + "…"
+    prefix = title if len(title) <= 40 else title[:39].rstrip() + "…"
+    return label, prefix
 
 # NAMED_SCALES: hand-defined groupings for items that conceptually belong
 # together but share neither a number suffix nor a colon alias. Match by
@@ -397,17 +457,25 @@ def _build_scale_record(
     Returns None if items can't be coerced to numeric reliably.
     """
     items_numeric = []
-    parse_rates = []
+    good_cols = []
+    dropped_cols = []
     for c in cols:
         if coerce_text_likert:
             n_series, rate = _coerce_likert_to_numeric(df[c])
         else:
             n_series, rate = _try_numeric(df[c])
         if rate < 0.75:
-            return None   # bail — can't trust the numeric coercion
+            # One item that won't coerce (e.g. free-text bleed) shouldn't sink
+            # the whole battery — drop just that item and keep the rest.
+            dropped_cols.append(c)
+            continue
         items_numeric.append(n_series)
-        parse_rates.append(rate)
+        good_cols.append(c)
 
+    if len(good_cols) < 2:
+        return None   # not enough valid items to form a scale
+
+    cols = good_cols
     scale_max = _scale_max(items_numeric)
     composite, per_item = _auto_detect_reverse_scored(items_numeric, cols, scale_max)
 
@@ -425,6 +493,7 @@ def _build_scale_record(
             "n_items": len(cols),
             "n_reverse_scored": n_reverse,
             "per_item": per_item,
+            "dropped_items": dropped_cols,   # items excluded (unparseable)
         },
         "chart_path": None,
         "composite_series": composite,
@@ -461,31 +530,40 @@ def _detect_grouped_scales(df: pd.DataFrame, candidate_cols: list[str]) -> tuple
             out.append(rec)
             consumed.update(cols_sorted)
 
-    # Pass B: shared `:alias` suffix (e.g. ...:plaintiff_perception)
-    alias_groups: dict[str, list[str]] = defaultdict(list)
+    # Pass B: shared colon-title battery. Alchemer names matrix sub-questions
+    # "<item text>:<question title>"; items in one battery share an identical
+    # title. Group by that normalized title so both short tags
+    # (":plaintiff_sentiment") and full-sentence titles (the AutoZone battery)
+    # are caught.
+    title_groups: dict[str, list[str]] = defaultdict(list)
     for col in candidate_cols:
         if col in consumed:
             continue
-        # Skip fact item columns — they're handled by the fact-suffix detector
+        # Fact items share ":Fact N" but are handled by the fact detector.
         if schema.FACT_SUFFIX.search(col):
             continue
-        m = COLON_ALIAS_SUFFIX.search(col)
-        if m:
-            alias_groups[m.group(1)].append(col)
-    for alias, cols in alias_groups.items():
-        if len(cols) < 2:
+        key = _colon_title_key(col)
+        if not key or key in _EXCLUDE_COLON_TITLES:
             continue
-        # Skip aliases we don't want to treat as scales (handled elsewhere)
-        if alias.lower() in {"responsibility", "tipi",
-                              "global_belief_in_a_just_world",
-                              "litigation_attitudes", "single_item"}:
+        title_groups[key].append(col)
+    for key, cols in title_groups.items():
+        if len(cols) < 2:
             continue
         # Keep original column order
         cols_sorted = [c for c in candidate_cols if c in cols]
-        rec = _build_scale_record(df, alias, alias.replace("_", " ").title(), cols_sorted)
+        label, prefix = _scale_label_from_title(_colon_title(cols_sorted[0]) or key)
+        rec = _build_scale_record(df, prefix, label, cols_sorted)
         if rec:
             out.append(rec)
             consumed.update(cols_sorted)
+            # Alchemer sometimes emits a bare "parent" column for the matrix
+            # (a lone "plaintiff_sentiment" with no colon and no per-item data).
+            # Consume it so it doesn't resurface as a separate noise question.
+            for c in candidate_cols:
+                if c in consumed or ":" in c:
+                    continue
+                if re.sub(r"\s+", " ", _clean_label(c)).strip().lower() == key:
+                    consumed.add(c)
 
     # Pass C: NAMED_SCALES (case-specific named groupings)
     for scale_id, spec in NAMED_SCALES.items():
