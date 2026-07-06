@@ -604,13 +604,15 @@ def _detect_grouped_scales(df: pd.DataFrame, candidate_cols: list[str]) -> tuple
 def _set_style():
     plt.rcParams.update({
         "font.family": "sans-serif",
-        "font.sans-serif": ["Noto Sans", "DejaVu Sans", "Arial"],
-        "axes.edgecolor": JA_TEXT, "axes.labelcolor": JA_TEXT,
+        "font.sans-serif": ["Poppins", "Noto Sans", "DejaVu Sans", "Arial"],
+        "axes.edgecolor": "#DDDDE3", "axes.linewidth": 0.9,
+        "axes.labelcolor": "#6c757d", "axes.labelweight": "normal", "axes.labelsize": 10,
         "axes.titlecolor": JA_PRIMARY, "axes.titleweight": "bold",
-        "xtick.color": JA_TEXT, "ytick.color": JA_TEXT,
+        "xtick.color": "#6c757d", "ytick.color": "#6c757d",
+        "xtick.labelsize": 9, "ytick.labelsize": 9,
         "axes.spines.top": False, "axes.spines.right": False,
         "axes.grid": True, "axes.grid.axis": "y",
-        "grid.color": "#E5E5E5", "grid.linewidth": 0.6,
+        "grid.color": "#ECECF3", "grid.linewidth": 0.8,
         "figure.facecolor": "white", "axes.facecolor": "white",
     })
 
@@ -706,8 +708,7 @@ def _chart_grouped_scale(rec: dict, out_path: str):
 
     ax.set_xlim(0, scale_max * 1.12)
     ax.set_xlabel(f"Average rating (1–{scale_max} scale)")
-    ax.set_title("Average rating by item", fontsize=12, color=JA_PRIMARY,
-                 fontweight="bold", pad=10)
+    # No in-chart title — the section heading already names the scale.
     ax.invert_yaxis()   # first item on top
     ax.grid(axis="x", alpha=0.3); ax.grid(axis="y", visible=False)
     plt.tight_layout()
