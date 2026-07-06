@@ -345,9 +345,10 @@ def _scale_label_from_title(title: str) -> tuple[str, str]:
     if re.fullmatch(r"[A-Za-z][A-Za-z0-9_]+", title):
         nice = title.replace("_", " ").title()
         return nice, nice
-    label = title if len(title) <= 60 else title[:59].rstrip() + "…"
+    # Label is the FULL question (never truncated for the report); prefix is a
+    # short internal handle only.
     prefix = title if len(title) <= 40 else title[:39].rstrip() + "…"
-    return label, prefix
+    return title, prefix
 
 # NAMED_SCALES: hand-defined groupings for items that conceptually belong
 # together but share neither a number suffix nor a colon alias. Match by

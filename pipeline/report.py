@@ -346,6 +346,48 @@ def generate_open_ended_themes(bundle: dict, question_key: str) -> str:
     return call_ai(prompt, max_tokens=1500)
 
 
+def _discovery_stats_block(rec: dict) -> str:
+    """Plain-language summary of a discovered question's results for the AI."""
+    kind = rec.get("kind")
+    st = rec.get("stats", {}) or {}
+    if kind == "grouped_scale":
+        smax = st.get("scale_max", 5)
+        lines = [f"Overall, jurors averaged {st.get('composite_mean')} out of {smax} across these related statements:"]
+        for it in st.get("per_item", []):
+            item = str(it.get("col", "")).split(":", 1)[0].strip()
+            lines.append(f'- "{item}": {it.get("mean")} out of {smax}')
+        return "\n".join(lines)
+    if kind == "categorical":
+        counts = st.get("counts", {}) or {}
+        pct = st.get("pct", {}) or {}
+        rows = sorted(counts.items(), key=lambda kv: -kv[1])
+        return "\n".join(f"- {k}: {v} jurors ({pct.get(k, 0)}%)" for k, v in rows)
+    if kind == "numeric_likert":
+        return f"Jurors averaged {st.get('mean')} (lowest {st.get('min')}, highest {st.get('max')})."
+    if kind == "binary":
+        y = st.get("pct_yes", 0)
+        return f"{y}% of jurors answered yes; {round(100 - y, 1)}% answered no."
+    if kind == "free_text":
+        return "Jurors answered in their own words (their themes are summarized elsewhere in this section)."
+    return ""
+
+
+def generate_discovery_interpretation(rec: dict, bundle: dict) -> str:
+    """Short plaintiff-facing interpretation of one discovered question/scale."""
+    case = bundle.get("case_metadata", {}) or {}
+    parties = case.get("parties", {}) or {}
+    plaintiff = parties.get("plaintiff") or parties.get("plaintiffs") or "the plaintiff"
+    label = re.sub(r"\s*\(composite\)\s*$", "", str(rec.get("label", "")))
+    ctx = {
+        "case_caption": case.get("case_caption", ""),
+        "plaintiff": plaintiff,
+        "question_label": label,
+        "stats_block": _discovery_stats_block(rec),
+    }
+    prompt = render_prompt("discovery_interpretation.txt", ctx)
+    return call_ai(prompt, max_tokens=350)
+
+
 def generate_discovery_summary(question_label: str, responses: list[str]) -> str:
     """AI summary for a free-text auto-discovered question.
     Uses the same themes prompt as standard open-endeds, treating the question
@@ -744,6 +786,11 @@ def build_report_context(bundle: dict, ai_sections: dict) -> dict:
                     "corr":     it.get("corr_with_rest"),
                 })
             rec_copy["items_display"] = items_display
+        # Plaintiff-facing interpretation box (skip silently if generation failed).
+        interp = ai_sections.get(f"discovery_interp_{rec['id']}", "")
+        rec_copy["interpretation_html"] = (
+            md_to_html(interp) if interp and not str(interp).startswith(FAILED_PREFIX) else ""
+        )
         rec_copy["report_section"] = _route_discovered_section(rec_copy)
         discovered_with_html.append(rec_copy)
 
@@ -870,6 +917,12 @@ def run_report(workspace_dir: str, regenerate_sections: Optional[list[str]] = No
         for rec in bundle.get("discovered_questions", [])
         if rec.get("kind") == "free_text" and rec.get("include", True)
     ]
+    # Plaintiff-facing interpretation box under EVERY included discovered question.
+    interp_keys = [
+        f"discovery_interp_{rec['id']}"
+        for rec in bundle.get("discovered_questions", [])
+        if rec.get("include", True)
+    ]
     all_keys = [
         "exec_summary",
         *fact_keys,
@@ -879,6 +932,7 @@ def run_report(workspace_dir: str, regenerate_sections: Optional[list[str]] = No
         "evidence_gap_themes",
         "unanswered_themes",
         *discovery_keys,
+        *interp_keys,
         "section_callouts",
     ]
 
@@ -914,6 +968,11 @@ def run_report(workspace_dir: str, regenerate_sections: Optional[list[str]] = No
                 rec = next((r for r in bundle.get("discovered_questions", []) if r["id"] == rec_id), None)
                 if rec and rec.get("kind") == "free_text":
                     ai_sections[key] = generate_discovery_summary(rec["label"], rec.get("responses", []))
+            elif key.startswith("discovery_interp_"):
+                rec_id = key[len("discovery_interp_"):]
+                rec = next((r for r in bundle.get("discovered_questions", []) if r["id"] == rec_id), None)
+                if rec:
+                    ai_sections[key] = generate_discovery_interpretation(rec, bundle)
         except Exception as e:
             err_msg = str(e)
             short_err = err_msg[:200]

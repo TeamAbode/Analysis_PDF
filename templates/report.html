@@ -306,35 +306,15 @@ hr.rule { border: none; border-top: 1pt solid var(--ja-rule); margin: 12pt 0; }
 {# ---- Reusable renderer for an auto-discovered question ----
    Used both by the routed subsections (Sections 4/5/6) and by Section 9. #}
 {% macro render_discovered(d) %}
+{% set clean_label = d.label | replace(' (composite)', '') | replace('(composite)', '') %}
 <div class="fact-block">
-  <h3>{{ d.label }}</h3>
+  <h3>{{ clean_label }}</h3>
 
   {% if d.kind == "grouped_scale" %}
-    <p class="small muted">
-      Composite scale of {{ d.item_cols|length }} items.
-      Mean composite score: <strong>{{ d.stats.composite_mean }}</strong> (median: {{ d.stats.composite_median }}).
-      {% if d.stats.n_reverse_scored and d.stats.n_reverse_scored > 0 %}
-      <span style="color:var(--ja-secondary, #0073DF);"><strong>{{ d.stats.n_reverse_scored }} of {{ d.stats.n_items or d.item_cols|length }} items reverse-scored (R)</strong></span> — items whose wording points opposite to the rest of the scale are flipped before averaging.
-      {% endif %}
-    </p>
-    {% if d.items_display %}
-    <table class="data">
-      <thead><tr><th style="width:60%">Item</th><th>Item Mean</th><th>Reverse?</th></tr></thead>
-      <tbody>
-      {% for it in d.items_display %}
-        <tr>
-          <td class="small">{{ it.label }}{% if it.reverse %} <strong style="color:var(--ja-secondary, #0073DF);">(R)</strong>{% endif %}</td>
-          <td class="numeric">{{ it.mean if it.mean is not none else "—" }}</td>
-          <td class="small">{% if it.reverse %}reverse-scored{% if it.manual %} (manual){% endif %}{% else %}—{% endif %}</td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
-    {% endif %}
+    <p class="small muted">Average across {{ d.item_cols|length }} related questions: <strong>{{ d.stats.composite_mean }}</strong>{% if d.stats.scale_max %} (on a 1–{{ d.stats.scale_max }} scale){% endif %}.</p>
     {% if d.chart_path %}
     <div class="chart">
-      <img src="{{ d.chart_path }}" alt="{{ d.label }}">
-      <div class="caption">Per-item means for the {{ d.prefix }} scale.</div>
+      <img src="{{ d.chart_path }}" alt="{{ clean_label }}">
     </div>
     {% endif %}
 
@@ -359,8 +339,12 @@ hr.rule { border: none; border-top: 1pt solid var(--ja-rule); margin: 12pt 0; }
     {% if d.chart_path %}<div class="chart"><img src="{{ d.chart_path }}" alt="{{ d.label }}"></div>{% endif %}
 
   {% elif d.kind == "free_text" %}
-    <p class="small muted">{{ d.stats.n_responses }} substantive responses (average length: {{ d.stats.avg_length }} characters). Themes summarized below.</p>
+    <p class="small muted">{{ d.stats.n_responses }} substantive responses. Themes summarized below.</p>
     {{ d.summary_html | safe }}
+  {% endif %}
+
+  {% if d.interpretation_html %}
+  <div class="takeaway"><strong>What this means:</strong> {{ d.interpretation_html | safe }}</div>
   {% endif %}
 </div>
 {% endmacro %}
@@ -567,28 +551,10 @@ hr.rule { border: none; border-top: 1pt solid var(--ja-rule); margin: 12pt 0; }
 
 {% if compensation.reconciliation %}
 {% set rec = compensation.reconciliation %}
-<h3>Award Reconciliation &amp; A/B Comparison</h3>
-<p>Each respondent gave the damages amount twice — once as a number and once spelled out in words. To keep only reliable answers, both are parsed and a respondent is kept <strong>only when the two answers agree</strong> (within {{ rec.tol_pct }}%); answers that disagree or can't be read are dropped. This cleaning is done separately for each A/B branch{% if rec.variant_col %} (assignment column: <em>{{ rec.variant_col }}</em>){% endif %}, and the cleaned awards are then compared. All Compensation figures above are based on this cleaned data.</p>
-
+<h3>Damages by Survey Format (A/B)</h3>
+<p>Respondents were randomly assigned one of two damages-question formats. The table below compares the award amounts each format produced.</p>
 <table class="data">
-  <thead><tr><th>Branch</th><th>Assigned</th><th>Answered both</th><th>Kept (agree)</th><th>Dropped</th><th>% kept</th></tr></thead>
-  <tbody>
-  {% for b in rec.branches %}
-    <tr>
-      <td>{{ b.label }}</td>
-      <td>{{ b.n_assigned if b.n_assigned is not none else "—" }}</td>
-      <td>{{ b.n_both }}</td>
-      <td>{{ b.n_clean }}</td>
-      <td>{{ b.n_dropped }} <span class="small muted">({{ b.n_mismatch }} disagree, {{ b.n_unverifiable }} unreadable)</span></td>
-      <td>{{ b.pct_matched if b.pct_matched is not none else "—" }}%</td>
-    </tr>
-  {% endfor %}
-  </tbody>
-</table>
-
-<h4>Cleaned award amounts by branch</h4>
-<table class="data">
-  <thead><tr><th>Branch</th><th>N</th><th>Mean</th><th>Median</th><th>Min</th><th>Max</th><th>Std. Dev.</th></tr></thead>
+  <thead><tr><th>Format</th><th>N</th><th>Mean</th><th>Median</th><th>Lowest</th><th>Highest</th><th>Std. Dev.</th></tr></thead>
   <tbody>
   {% for b in rec.branches %}
     <tr>
@@ -603,29 +569,14 @@ hr.rule { border: none; border-top: 1pt solid var(--ja-rule); margin: 12pt 0; }
   {% endfor %}
   </tbody>
 </table>
-
 {% if rec.comparison %}
 {% set c = rec.comparison %}
 <div class="takeaway" style="margin-top:14px;">
-  <strong>Branch {{ c.a }} vs Branch {{ c.b }} (cleaned awards):</strong>
-  mean {{ c.mean_a }} vs {{ c.mean_b }} (difference {{ c.mean_diff }}); median {{ c.median_a }} vs {{ c.median_b }} (difference {{ c.median_diff }}).
-  {% if c.p_value is not none %}<br>{{ c.test }}: p = {{ c.p_value }} — {% if c.significant %}<strong style="color:var(--ja-secondary, #0073DF);">a statistically significant difference</strong> between branches.{% else %}not a statistically significant difference.{% endif %}{% endif %}
+  <strong>{{ rec.branches[0].label }} vs {{ rec.branches[1].label }}:</strong>
+  mean {{ c.mean_a }} vs {{ c.mean_b }} ({{ c.mean_diff }}); median {{ c.median_a }} vs {{ c.median_b }} ({{ c.median_diff }}).
+  {% if c.p_value is not none %}<br>{{ c.test }}: p = {{ c.p_value }} — {% if c.significant %}<strong style="color:var(--ja-secondary, #0073DF);">a statistically significant difference</strong> between the two formats.{% else %}not a statistically significant difference.{% endif %}{% endif %}
 </div>
 {% endif %}
-
-{% for b in rec.branches %}
-  {% if b.mismatch_examples %}
-  <p class="small muted" style="margin-top:10px;"><strong>{{ b.label }} — sample of dropped (disagreeing) answers:</strong></p>
-  <table class="data">
-    <thead><tr><th>Numeric field</th><th>Spelled-out field</th><th>Parsed number</th><th>Parsed words</th></tr></thead>
-    <tbody>
-    {% for ex in b.mismatch_examples %}
-      <tr><td class="small">{{ ex.numeric }}</td><td class="small">{{ ex.words }}</td><td class="numeric">{{ ex.parsed_numeric }}</td><td class="numeric">{{ ex.parsed_words }}</td></tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  {% endif %}
-{% endfor %}
 {% endif %}
 
 {% if ab_analysis %}
