@@ -68,20 +68,25 @@ COLOR_NEUTRAL = "#BDC3C7"
 def _set_chart_style():
     plt.rcParams.update({
         "font.family": "sans-serif",
-        "font.sans-serif": ["Noto Sans", "DejaVu Sans", "Arial"],
-        "axes.edgecolor": JA_TEXT,
-        "axes.labelcolor": JA_TEXT,
+        "font.sans-serif": ["Poppins", "Noto Sans", "DejaVu Sans", "Arial"],
+        "axes.edgecolor": "#DDDDE3",
+        "axes.linewidth": 0.9,
+        "axes.labelcolor": "#6c757d",
+        "axes.labelweight": "normal",
+        "axes.labelsize": 10,
         "axes.titlecolor": JA_PRIMARY,
         "axes.titleweight": "bold",
         "axes.titlesize": 13,
-        "xtick.color": JA_TEXT,
-        "ytick.color": JA_TEXT,
+        "xtick.color": "#6c757d",
+        "ytick.color": "#6c757d",
+        "xtick.labelsize": 9,
+        "ytick.labelsize": 9,
         "axes.spines.top": False,
         "axes.spines.right": False,
         "axes.grid": True,
         "axes.grid.axis": "y",
-        "grid.color": "#E5E5E5",
-        "grid.linewidth": 0.6,
+        "grid.color": "#ECECF3",
+        "grid.linewidth": 0.8,
         "figure.facecolor": "white",
         "axes.facecolor": "white",
     })
@@ -564,6 +569,11 @@ def compute_compensation(df: pd.DataFrame, mapping: Optional[dict] = None) -> di
     reconciliation = award_reconcile.reconcile_awards(df, mapping=mapping)
     if reconciliation is not None:
         comp = reconciliation.pop("combined_clean")
+        # Expose the cleaned award as a real column so the A/B split and the
+        # Expected Case Value model downstream read the reconciled figures.
+        df = df.copy()
+        df["_reconciled_award"] = comp
+        comp_col = "_reconciled_award"
     else:
         comp = _numeric(df, comp_col)
     liable_col = schema.find_column(df, "liable", mapping=mapping)
@@ -781,34 +791,65 @@ def _parse_pct_series(series: pd.Series) -> pd.Series:
     return series.apply(_one).astype(float)
 
 
+def _fmt_dollars(x: float) -> str:
+    """Compact money label: $2.5M, $750K, $0."""
+    x = float(x)
+    if abs(x) >= 1_000_000:
+        s = f"${x/1_000_000:.1f}M"
+        return s.replace(".0M", "M")
+    if abs(x) >= 1_000:
+        return f"${x/1_000:.0f}K"
+    return f"${x:.0f}"
+
+
 def chart_award_distribution(comp: dict, out_path: str):
     _set_chart_style()
-    fig, ax = plt.subplots(figsize=(9, 5))
-    values = comp["award_values"]
+    fig, ax = plt.subplots(figsize=(9, 4.8))
+    values = [float(v) for v in (comp.get("award_values") or []) if v is not None]
     if not values:
-        ax.text(0.5, 0.5, "(no award data)", ha="center", va="center", transform=ax.transAxes)
+        ax.text(0.5, 0.5, "(no award data)", ha="center", va="center",
+                transform=ax.transAxes, color=JA_TEXT)
+        ax.axis("off")
     else:
-        # Bin in 50k increments up to 500k
-        bins = list(range(0, 550_000, 50_000))
-        ax.hist(values, bins=bins, color=JA_SECONDARY, edgecolor="white", linewidth=1)
-        mean_v = comp["mean_award_all"]
-        median_v = comp["median_award_all"]
+        vals = np.array(values, dtype=float)
+        vmax = float(np.max(vals))
+        M = 1_000_000
+        # Pick a bin width that yields ~10-14 bars and reads in round dollars.
+        if vmax <= 2 * M:
+            step = 0.25 * M
+        elif vmax <= 6 * M:
+            step = 0.5 * M
+        elif vmax <= 15 * M:
+            step = 1 * M
+        else:
+            step = 2 * M
+        top = float(np.ceil(vmax / step) * step) or step
+        bins = np.arange(0, top + step, step)
+        ax.hist(vals, bins=bins, color=JA_PRIMARY, edgecolor="white", linewidth=1)
+
+        mean_v = comp.get("mean_award_all")
+        median_v = comp.get("median_award_all")
         if mean_v is not None:
             ax.axvline(mean_v, color=COLOR_DEFENSE, linestyle="--", linewidth=2,
-                       label=f"Mean: ${mean_v/1000:.0f}K")
+                       label=f"Mean: {_fmt_dollars(mean_v)}")
         if median_v is not None:
             ax.axvline(median_v, color=JA_DARK, linestyle=":", linewidth=2,
-                       label=f"Median: ${median_v/1000:.0f}K")
-        ax.legend(frameon=False)
-        ax.set_xlabel("Amount ($K)")
-        # Convert tick labels to K
-        ax.set_xticks(bins[::2])
-        ax.set_xticklabels([f"{b//1000}" for b in bins[::2]])
-        ax.set_ylabel("Frequency")
-    ax.set_title("Award Distribution ($0–$500K)",
+                       label=f"Median: {_fmt_dollars(median_v)}")
+        ax.legend(frameon=False, loc="upper right")
+
+        # Tick every 1-2 bins so labels never crowd.
+        tick_step = step * (2 if len(bins) > 11 else 1)
+        ticks = np.arange(0, top + tick_step, tick_step)
+        ax.set_xticks(ticks)
+        ax.set_xticklabels([_fmt_dollars(t) for t in ticks])
+        ax.set_xlim(0, top)
+        ax.set_xlabel("Award amount")
+        ax.set_ylabel("Number of jurors")
+    ax.set_title("Distribution of Damages Awards",
                  fontweight="bold", color=JA_PRIMARY, fontsize=13)
     plt.tight_layout()
     plt.savefig(out_path, dpi=150, bbox_inches="tight", facecolor="white")
+    plt.close()
     plt.close()
 
 

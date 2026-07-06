@@ -30,6 +30,7 @@ and the user can toggle each before re-running.
 """
 from __future__ import annotations
 import re
+import textwrap
 from collections import defaultdict
 from pathlib import Path
 from typing import Optional
@@ -344,9 +345,10 @@ def _scale_label_from_title(title: str) -> tuple[str, str]:
     if re.fullmatch(r"[A-Za-z][A-Za-z0-9_]+", title):
         nice = title.replace("_", " ").title()
         return nice, nice
-    label = title if len(title) <= 60 else title[:59].rstrip() + "…"
+    # Label is the FULL question (never truncated for the report); prefix is a
+    # short internal handle only.
     prefix = title if len(title) <= 40 else title[:39].rstrip() + "…"
-    return label, prefix
+    return title, prefix
 
 # NAMED_SCALES: hand-defined groupings for items that conceptually belong
 # together but share neither a number suffix nor a colon alias. Match by
@@ -602,13 +604,15 @@ def _detect_grouped_scales(df: pd.DataFrame, candidate_cols: list[str]) -> tuple
 def _set_style():
     plt.rcParams.update({
         "font.family": "sans-serif",
-        "font.sans-serif": ["Noto Sans", "DejaVu Sans", "Arial"],
-        "axes.edgecolor": JA_TEXT, "axes.labelcolor": JA_TEXT,
+        "font.sans-serif": ["Poppins", "Noto Sans", "DejaVu Sans", "Arial"],
+        "axes.edgecolor": "#DDDDE3", "axes.linewidth": 0.9,
+        "axes.labelcolor": "#6c757d", "axes.labelweight": "normal", "axes.labelsize": 10,
         "axes.titlecolor": JA_PRIMARY, "axes.titleweight": "bold",
-        "xtick.color": JA_TEXT, "ytick.color": JA_TEXT,
+        "xtick.color": "#6c757d", "ytick.color": "#6c757d",
+        "xtick.labelsize": 9, "ytick.labelsize": 9,
         "axes.spines.top": False, "axes.spines.right": False,
         "axes.grid": True, "axes.grid.axis": "y",
-        "grid.color": "#E5E5E5", "grid.linewidth": 0.6,
+        "grid.color": "#ECECF3", "grid.linewidth": 0.8,
         "figure.facecolor": "white", "axes.facecolor": "white",
     })
 
@@ -671,26 +675,44 @@ def _chart_numeric(rec: dict, out_path: str, series: pd.Series):
     plt.close()
 
 
+def _item_text(col: str) -> str:
+    """Human-readable item text: the part before the Alchemer ':title' suffix."""
+    txt = _clean_label(str(col).split(":", 1)[0])
+    return txt or _clean_label(str(col))
+
+
 def _chart_grouped_scale(rec: dict, out_path: str):
     _set_style()
     items = rec["stats"]["per_item"]
-    labels = [it["col"][:30] for it in items]
+    # Full item wording, wrapped so nothing is cut off.
+    labels = [textwrap.fill(_item_text(it["col"]), 46) for it in items]
     means = [it["mean"] or 0 for it in items]
-    fig, ax = plt.subplots(figsize=(7, max(3.5, 0.4 * len(items) + 1.2)))
-    bars = ax.barh(labels, means, color=JA_MID)
+    scale_max = rec["stats"].get("scale_max") or 5
+
+    n = len(items)
+    row_h = max(0.34 * (max(len(l.split("\n")) for l in labels)), 0.5)
+    fig, ax = plt.subplots(figsize=(8.2, max(2.8, row_h * n + 1.4)))
+    y = list(range(n))
+    ax.barh(y, means, color=JA_PRIMARY, edgecolor="white", height=0.68)
+    ax.set_yticks(y)
+    ax.set_yticklabels(labels, fontsize=9)
     for i, v in enumerate(means):
-        ax.text(v + 0.02, i, f"{v:.2f}", va="center", fontsize=9, color=JA_TEXT)
-    composite = rec["stats"].get("composite_mean")
-    if composite is not None:
-        ax.axvline(composite, color="#C0392B", linestyle="--",
-                   label=f"Composite mean: {composite:.2f}")
-        ax.legend(frameon=False)
-    ax.set_title(f"{rec['prefix']} scale — per-item means",
-                 fontsize=11, color=JA_PRIMARY)
-    ax.set_xlabel("Mean")
+        ax.text(v + scale_max * 0.012, i, f"{v:.2f}", va="center",
+                fontsize=9, color=JA_TEXT, fontweight="bold")
+
+    avg = rec["stats"].get("composite_mean")
+    if avg is not None:
+        ax.axvline(avg, color=JA_SECONDARY, linestyle="--", linewidth=1.6,
+                   label=f"Overall average: {avg:.2f}")
+        ax.legend(frameon=False, loc="lower right", fontsize=9)
+
+    ax.set_xlim(0, scale_max * 1.12)
+    ax.set_xlabel(f"Average rating (1–{scale_max} scale)")
+    # No in-chart title — the section heading already names the scale.
+    ax.invert_yaxis()   # first item on top
     ax.grid(axis="x", alpha=0.3); ax.grid(axis="y", visible=False)
     plt.tight_layout()
-    plt.savefig(out_path, dpi=140, bbox_inches="tight", facecolor="white")
+    plt.savefig(out_path, dpi=150, bbox_inches="tight", facecolor="white")
     plt.close()
 
 
