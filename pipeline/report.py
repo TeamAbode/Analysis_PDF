@@ -663,9 +663,11 @@ def build_report_context(bundle: dict, ai_sections: dict) -> dict:
     comp_fmt["reconciliation"] = format_award_reconciliation(comp.get("award_reconciliation"))
 
     # --- A/B analysis (sampling-design framework) ---
+    # Suppressed when the newer award-reconciliation A/B comparison is present,
+    # to avoid two (differently-computed) A/B tables in the same section.
     ab = comp.get("ab_analysis") or {}
     ab_fmt = None
-    if ab.get("ab_present") or ab.get("per_variant"):
+    if not comp.get("award_reconciliation") and (ab.get("ab_present") or ab.get("per_variant")):
         ab_fmt = {
             "present":      ab.get("ab_present", False),
             "variant_col":  ab.get("variant_col"),
