@@ -30,6 +30,7 @@ and the user can toggle each before re-running.
 """
 from __future__ import annotations
 import re
+import textwrap
 from collections import defaultdict
 from pathlib import Path
 from typing import Optional
@@ -671,26 +672,45 @@ def _chart_numeric(rec: dict, out_path: str, series: pd.Series):
     plt.close()
 
 
+def _item_text(col: str) -> str:
+    """Human-readable item text: the part before the Alchemer ':title' suffix."""
+    txt = _clean_label(str(col).split(":", 1)[0])
+    return txt or _clean_label(str(col))
+
+
 def _chart_grouped_scale(rec: dict, out_path: str):
     _set_style()
     items = rec["stats"]["per_item"]
-    labels = [it["col"][:30] for it in items]
+    # Full item wording, wrapped so nothing is cut off.
+    labels = [textwrap.fill(_item_text(it["col"]), 46) for it in items]
     means = [it["mean"] or 0 for it in items]
-    fig, ax = plt.subplots(figsize=(7, max(3.5, 0.4 * len(items) + 1.2)))
-    bars = ax.barh(labels, means, color=JA_MID)
+    scale_max = rec["stats"].get("scale_max") or 5
+
+    n = len(items)
+    row_h = max(0.34 * (max(len(l.split("\n")) for l in labels)), 0.5)
+    fig, ax = plt.subplots(figsize=(8.2, max(2.8, row_h * n + 1.4)))
+    y = list(range(n))
+    ax.barh(y, means, color=JA_PRIMARY, edgecolor="white", height=0.68)
+    ax.set_yticks(y)
+    ax.set_yticklabels(labels, fontsize=9)
     for i, v in enumerate(means):
-        ax.text(v + 0.02, i, f"{v:.2f}", va="center", fontsize=9, color=JA_TEXT)
-    composite = rec["stats"].get("composite_mean")
-    if composite is not None:
-        ax.axvline(composite, color="#C0392B", linestyle="--",
-                   label=f"Composite mean: {composite:.2f}")
-        ax.legend(frameon=False)
-    ax.set_title(f"{rec['prefix']} scale — per-item means",
-                 fontsize=11, color=JA_PRIMARY)
-    ax.set_xlabel("Mean")
+        ax.text(v + scale_max * 0.012, i, f"{v:.2f}", va="center",
+                fontsize=9, color=JA_TEXT, fontweight="bold")
+
+    avg = rec["stats"].get("composite_mean")
+    if avg is not None:
+        ax.axvline(avg, color=JA_SECONDARY, linestyle="--", linewidth=1.6,
+                   label=f"Overall average: {avg:.2f}")
+        ax.legend(frameon=False, loc="lower right", fontsize=9)
+
+    ax.set_xlim(0, scale_max * 1.12)
+    ax.set_xlabel(f"Average rating (1–{scale_max} scale)")
+    ax.set_title("Average rating by item", fontsize=12, color=JA_PRIMARY,
+                 fontweight="bold", pad=10)
+    ax.invert_yaxis()   # first item on top
     ax.grid(axis="x", alpha=0.3); ax.grid(axis="y", visible=False)
     plt.tight_layout()
-    plt.savefig(out_path, dpi=140, bbox_inches="tight", facecolor="white")
+    plt.savefig(out_path, dpi=150, bbox_inches="tight", facecolor="white")
     plt.close()
 
 
