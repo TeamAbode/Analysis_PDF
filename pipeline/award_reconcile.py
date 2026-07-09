@@ -94,8 +94,7 @@ def reconcile_awards(df: pd.DataFrame, mapping: Optional[dict] = None,
             if variant_col else pd.Series([None] * len(df), index=df.index))
 
     combined = pd.Series(np.nan, index=df.index, dtype=float)
-    branches_out: dict[str, dict] = {}
-    branch_clean_vals: dict[str, np.ndarray] = {}
+    branch_meta: dict[str, dict] = {}
 
     for branch in sorted(found["branches"].keys()):
         cols = found["branches"][branch]
@@ -114,7 +113,6 @@ def reconcile_awards(df: pd.DataFrame, mapping: Optional[dict] = None,
             a = parse_money(a_raw)
             w = parse_money(w_raw) if words_col else None
             if words_col is None:
-                # No words column to check against — keep the parsed number.
                 if a is not None:
                     combined.at[idx] = a
                     matched_idx.append(idx)
@@ -134,21 +132,44 @@ def reconcile_awards(df: pd.DataFrame, mapping: Optional[dict] = None,
                         "numeric": str(a_raw), "words": str(w_raw),
                         "parsed_numeric": a, "parsed_words": w,
                     })
+        branch_meta[branch] = {
+            "amt_col": amt_col, "words_col": words_col, "n_assigned": n_assigned,
+            "both": both, "matched_idx": matched_idx, "n_mismatch": n_mismatch,
+            "n_unverifiable": n_unverifiable, "mismatch_examples": mismatch_examples,
+        }
 
-        vals = combined.loc[matched_idx].dropna().to_numpy(dtype=float)
+    # Protest-outlier cap: a few implausible entries (orders of magnitude above
+    # the rest — e.g. someone typing $250M in the open-entry format) would
+    # distort the mean and the A/B table. Drop awards beyond 3x the 95th
+    # percentile of matched awards. On clean data the cap is far above any
+    # value, so nothing is dropped.
+    matched = combined.dropna()
+    pos = matched[matched > 0]
+    outlier_cap = None
+    if len(matched) >= 20 and len(pos) >= 10:
+        cap = 3.0 * float(np.percentile(pos.to_numpy(dtype=float), 95))
+        if (combined > cap).any():
+            outlier_cap = cap
+            combined = combined.where(combined <= cap)
+
+    branches_out: dict[str, dict] = {}
+    branch_clean_vals: dict[str, np.ndarray] = {}
+    total_excluded = 0
+    for branch, m in branch_meta.items():
+        idx = [i for i in m["matched_idx"] if pd.notna(combined.at[i])]
+        vals = combined.loc[idx].to_numpy(dtype=float)
+        n_excluded = len(m["matched_idx"]) - len(idx)
+        total_excluded += n_excluded
         branch_clean_vals[branch] = vals
         branches_out[branch] = {
             "label": f"Branch {branch}",
-            "amount_col": amt_col,
-            "words_col": words_col,
-            "n_assigned": n_assigned,
-            "n_both_answered": both,
-            "n_matched": int(len(vals)),
-            "n_mismatch": n_mismatch,
-            "n_unverifiable": n_unverifiable,
-            "pct_matched": (round(100 * len(vals) / both, 1) if both else None),
+            "amount_col": m["amt_col"], "words_col": m["words_col"],
+            "n_assigned": m["n_assigned"], "n_both_answered": m["both"],
+            "n_matched": int(len(vals)), "n_mismatch": m["n_mismatch"],
+            "n_unverifiable": m["n_unverifiable"], "n_outliers_excluded": n_excluded,
+            "pct_matched": (round(100 * len(vals) / m["both"], 1) if m["both"] else None),
             "clean": _clean_stats(vals),
-            "mismatch_examples": mismatch_examples,
+            "mismatch_examples": m["mismatch_examples"],
         }
 
     comparison = _compare_branches(branch_clean_vals)
@@ -157,6 +178,8 @@ def reconcile_awards(df: pd.DataFrame, mapping: Optional[dict] = None,
         "present": True,
         "variant_col": variant_col,
         "rel_tol": rel_tol,
+        "outlier_cap": outlier_cap,
+        "n_outliers_excluded": total_excluded,
         "branches": branches_out,
         "comparison": comparison,
         "combined_clean": combined,   # Series; stripped before JSON serialization
