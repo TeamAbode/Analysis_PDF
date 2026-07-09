@@ -216,60 +216,130 @@ def chart_education_income(demos: dict, out_path: str):
 # Case facts
 # ---------------------------------------------------------------------------
 
+# Alternate fact-question format: instead of the ":Fact N" suffix, some surveys
+# put the FULL fact text after the colon, e.g.
+#   "How important is this information to deciding the case outcome?:<fact text>"
+#   "How would this information influence your verdict?:<fact text>"
+#   "How CONVINCING do you find this claim?:<fact text>"
+# with a shared, positional "Please provide your reasoning..." column after each.
+_ALT_IMP_RE = re.compile(r"how important is this information to deciding the case outcome", re.I)
+_ALT_INF_RE = re.compile(r"how would this information influence your verdict", re.I)
+_ALT_CONV_RE = re.compile(r"how convincing do you find this claim", re.I)
+_ALT_REASON_RE = re.compile(r"please provide your reasoning for how this fact", re.I)
+
+# 5-point convincing scale (anchored 1 = Not at all, 5 = Extremely)
+_CONVINCING_MAP = {
+    "Not at all convincing": 1, "Slightly convincing": 2,
+    "Somewhat convincing": 3,  "Very convincing": 4,
+    "Extremely convincing": 5,
+}
+
+
+def build_fact_specs(df: pd.DataFrame, fact_metadata: list[dict]) -> list[dict]:
+    """
+    Resolve every case fact from the data, in survey order, regardless of which
+    of the two column formats the survey used. Facts are RE-NUMBERED 1..N in
+    column order (the survey's own F-numbers are often mislabeled).
+
+    Each spec: {num, text, imp_col, inf_col, reason_col, conv_col}.
+    """
+    cols = list(df.columns)
+    text_map = {f["num"]: f["text"] for f in fact_metadata}
+    raw: list[dict] = []
+
+    # --- Standard ":Fact N" facts ---
+    std_convincing: dict[int, str] = {}
+    for col in cols:
+        m = schema.FACT_SUFFIX.search(str(col))
+        if m and "how convincing" in str(col).lower():
+            std_convincing[int(m.group(1))] = col
+    for num in schema.detect_facts(df):
+        imp = schema.fact_importance_col(df, num)
+        inf = schema.fact_influence_col(df, num)
+        anchor = imp or inf
+        raw.append({
+            "order": cols.index(anchor) if anchor in cols else 10_000,
+            "text": text_map.get(num, ""),
+            "imp_col": imp, "inf_col": inf,
+            "reason_col": schema.fact_reasoning_col(df, num),
+            "conv_col": std_convincing.get(num),
+        })
+
+    # --- Alternate full-text-suffix facts ---
+    def _norm(s):
+        return re.sub(r"\s+", " ", str(s)).strip()
+    alt: dict[str, dict] = {}
+    for col in cols:
+        cs = str(col)
+        if schema.FACT_SUFFIX.search(cs) or ":" not in cs:
+            continue
+        suffix = _norm(cs.split(":", 1)[1])
+        if _ALT_IMP_RE.search(cs):
+            alt.setdefault(suffix, {"text": suffix, "order": cols.index(col)})["imp_col"] = col
+        elif _ALT_INF_RE.search(cs):
+            alt.setdefault(suffix, {"text": suffix, "order": cols.index(col)})["inf_col"] = col
+        elif _ALT_CONV_RE.search(cs):
+            alt.setdefault(suffix, {"text": suffix, "order": cols.index(col)})["conv_col"] = col
+    # Pair each alt fact with the positional "reasoning" column that follows it.
+    for spec in alt.values():
+        anchor = spec.get("inf_col") or spec.get("imp_col") or spec.get("conv_col")
+        if anchor and anchor in cols:
+            i = cols.index(anchor)
+            for j in range(i + 1, min(i + 4, len(cols))):
+                if _ALT_REASON_RE.search(str(cols[j])):
+                    spec["reason_col"] = cols[j]
+                    break
+    raw.extend(alt.values())
+
+    # Order by column position (survey order) and renumber 1..N.
+    raw.sort(key=lambda s: s.get("order", 10_000))
+    specs = []
+    for i, s in enumerate(raw, start=1):
+        specs.append({
+            "num": i,
+            "text": s.get("text", ""),
+            "imp_col": s.get("imp_col"),
+            "inf_col": s.get("inf_col"),
+            "reason_col": s.get("reason_col"),
+            "conv_col": s.get("conv_col"),
+        })
+    return specs
+
+
+def all_fact_columns(df: pd.DataFrame, fact_metadata: Optional[list[dict]] = None) -> set:
+    """Every column consumed by the fact analysis (both formats) — so
+    auto-discovery doesn't re-list fact importance/influence/reasoning as
+    standalone 'additional questions'."""
+    out = set()
+    for s in build_fact_specs(df, fact_metadata or []):
+        for k in ("imp_col", "inf_col", "reason_col", "conv_col"):
+            if s.get(k):
+                out.add(s[k])
+    return out
+
+
 def compute_facts(df: pd.DataFrame, fact_metadata: list[dict]) -> list[dict]:
     """
-    For each fact, compute importance mean, influence mean, convincingness mean,
+    For each fact (both column formats, re-numbered 1..N in survey order),
+    compute importance mean, influence mean, convincingness mean,
     % plaintiff-leaning, direction, and collect juror reasoning quotes.
-
-    fact_metadata: list of {"num": int, "text": str} from case metadata.
     """
-    fact_nums = schema.detect_facts(df)
     results = []
-
-    # Build a lookup of fact text from metadata
-    text_map = {f["num"]: f["text"] for f in fact_metadata}
-
-    # Build a lookup of "How convincing" columns by fact number. Alchemer uses
-    # both "this claim" (Facts 2+) and "that claim" (Fact 1) phrasings — match
-    # either, anchored on the :Fact N suffix.
-    convincing_cols: dict[int, str] = {}
-    for col in df.columns:
-        m = schema.FACT_SUFFIX.search(col)
-        if not m:
-            continue
-        n = int(m.group(1))
-        low = col.lower()
-        if "how convincing" in low:
-            convincing_cols[n] = col
-
-    # 5-point convincing scale (anchored 1 = Not at all, 5 = Extremely)
-    convincing_map = {
-        "Not at all convincing": 1, "Slightly convincing": 2,
-        "Somewhat convincing": 3,  "Very convincing": 4,
-        "Extremely convincing": 5,
-    }
-
-    for num in fact_nums:
-        imp_col = schema.fact_importance_col(df, num)
-        inf_col = schema.fact_influence_col(df, num)
-        reason_col = schema.fact_reasoning_col(df, num)
-        conv_col = convincing_cols.get(num)
-
-        imp_numeric = _numeric(df, imp_col, schema.SIX_POINT_FACT_IMPORTANCE)
-        inf_numeric = _numeric(df, inf_col, schema.SIX_POINT_FACT_INFLUENCE)
-        conv_numeric = _numeric(df, conv_col, convincing_map) if conv_col else None
+    for spec in build_fact_specs(df, fact_metadata):
+        imp_numeric = _numeric(df, spec["imp_col"], schema.SIX_POINT_FACT_IMPORTANCE)
+        inf_numeric = _numeric(df, spec["inf_col"], schema.SIX_POINT_FACT_INFLUENCE)
+        conv_numeric = (_numeric(df, spec["conv_col"], _CONVINCING_MAP)
+                        if spec["conv_col"] else None)
 
         imp_mean = round(float(imp_numeric.mean()), 2) if imp_numeric.notna().any() else None
         inf_mean = round(float(inf_numeric.mean()), 2) if inf_numeric.notna().any() else None
         conv_mean = (round(float(conv_numeric.mean()), 2)
                      if conv_numeric is not None and conv_numeric.notna().any() else None)
 
-        # Influence > 3.5 = plaintiff-leaning, < 3.5 = defense-leaning
         plaintiff_count = int((inf_numeric > 3.5).sum())
         defense_count = int((inf_numeric < 3.5).sum())
         neutral_count = int((inf_numeric == 3.5).sum())
         total_valid = plaintiff_count + defense_count + neutral_count
-
         pct_plaintiff = _safe_pct(plaintiff_count, total_valid)
         pct_defense = _safe_pct(defense_count, total_valid)
 
@@ -281,20 +351,20 @@ def compute_facts(df: pd.DataFrame, fact_metadata: list[dict]) -> list[dict]:
             direction = "DEFENSE"
 
         quotes = []
+        reason_col = spec["reason_col"]
         if reason_col and reason_col in df.columns:
             raw_quotes = df[reason_col].dropna().astype(str).str.strip()
             raw_quotes = raw_quotes[raw_quotes.str.len() > 15]
             quotes = raw_quotes.tolist()[:8]
 
-        # Convincing distribution (counts at each numeric level 1..5)
         conv_dist = {}
         if conv_numeric is not None and conv_numeric.notna().any():
             for level in range(1, 6):
                 conv_dist[level] = int((conv_numeric == level).sum())
 
         results.append({
-            "num": num,
-            "text": text_map.get(num, ""),
+            "num": spec["num"],
+            "text": spec["text"],
             "importance_mean": imp_mean,
             "influence_mean": inf_mean,
             "convincing_mean": conv_mean,
@@ -311,6 +381,7 @@ def compute_facts(df: pd.DataFrame, fact_metadata: list[dict]) -> list[dict]:
 
 def chart_facts_importance_influence(facts: list[dict], out_path: str):
     _set_chart_style()
+    facts = [f for f in facts if f.get("influence_mean") is not None]
     fig, ax = plt.subplots(figsize=(10, 5.5))
     labels = [f"F{f['num']}" for f in facts]
     imp = [f["importance_mean"] or 0 for f in facts]
@@ -336,6 +407,7 @@ def chart_facts_importance_influence(facts: list[dict], out_path: str):
 
 def chart_facts_direction(facts: list[dict], out_path: str):
     _set_chart_style()
+    facts = [f for f in facts if f.get("influence_mean") is not None]
     fig, ax = plt.subplots(figsize=(10, 5.5))
     labels = [f"F{f['num']}" for f in facts]
     plaintiff_pct = [f["pct_plaintiff"] for f in facts]

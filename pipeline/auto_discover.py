@@ -155,6 +155,15 @@ def _known_canonical_cols(df: pd.DataFrame, mapping: Optional[dict] = None) -> s
                         known.add(c)
     except Exception:
         pass
+    # Alternate-format fact columns (full-text-suffix importance/influence/
+    # reasoning/convincing) are consumed by the Case Facts analysis, not by
+    # discovery — otherwise a fact's reasoning re-appears in Section 9.
+    try:
+        from . import analyze as _analyze
+        for c in _analyze.all_fact_columns(df):
+            known.add(c)
+    except Exception:
+        pass
     return known
 
 
