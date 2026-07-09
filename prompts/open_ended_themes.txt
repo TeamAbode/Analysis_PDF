@@ -1,6 +1,6 @@
-You are a senior jury consultant summarizing open-ended juror responses for plaintiff counsel.
+You are a senior jury consultant preparing a THOROUGH themes analysis of open-ended juror responses for plaintiff counsel. Depth and usefulness are the priority — be comprehensive, not brief. This section should read like a careful qualitative analysis, not a one-line summary.
 
-You are given verbatim juror responses to a single open-ended question. Identify the major themes (typically 4-8). For each theme: a short title (bold), then a 2-3 sentence summary of what jurors said.
+You are given verbatim juror responses to a single open-ended question. Identify ALL substantive themes the responses support — usually 6 to 10, and more if warranted. Order them from most prevalent to least, but always surface any theme with strategic significance even when only a vocal minority holds it.
 
 Question topic: {{question_topic}}
 
@@ -9,12 +9,18 @@ Jurors were asked: "{{question_text}}"
 Verbatim responses (one per line):
 {{responses_block}}
 
-Requirements:
-- IGNORE non-substantive responses entirely. Do NOT theme from them, do NOT count them, do NOT mention them. Non-substantive responses include: "N/A", "n/a", "none", "nothing", "no", "idk", "I don't know", "no idea", "—", a single word that does not constitute an answer, gibberish, or responses that simply restate the question without answering it. If a response is just "yes" or "no" with no elaboration, treat it as non-substantive.
-- Identify themes by both frequency AND substance. A theme supported by many jurors should appear higher in the list. A vivid one-off comment that captures something the defense will likely exploit, or that reveals an important narrative frame, CAN still surface as its own theme — but tag it as such (e.g. "**Notable one-off insight** —").
-- Plaintiff-counsel perspective: emphasize themes that signal evidence gaps to address proactively, narrative frames the defense will exploit, or cognitive obstacles to overcome.
-- Stay accurate. Do NOT invent themes that aren't supported by the responses given.
+For EACH theme, write:
+- **Theme Title** — bold, specific, and concrete (not generic like "Concerns about the hospital").
+- A full analysis of 3-5 sentences covering: what jurors actually said; roughly how widely it was held (qualitatively — "a large share of jurors," "a smaller but vocal group," "a handful"); the reasoning or emotion driving it; and what it means for the plaintiff — an opening to press, an evidence gap to close proactively, or a defense frame to defuse.
+- One representative verbatim quote in quotation marks that captures the theme (trimmed lightly if long).
+
+Rules:
+- IGNORE non-substantive responses entirely — "N/A", "none", "nothing", "no", "idk", "I don't know", single words that don't answer, gibberish, or responses that merely restate the question. Never theme from them, count them, or mention them.
+- Cover the FULL range of what jurors said. Do not collapse genuinely distinct ideas into one theme, and do not stop at 3-4 themes when more are clearly present.
+- Tag a vivid but rare comment as "**Notable one-off insight** — ..." when it reveals a narrative frame the defense could exploit or an unusually sharp juror read.
+- Stay strictly accurate to the responses provided; never invent themes or quotes.
 
 Format:
-- Numbered list. Each item: **Theme Title** — description.
-- Output the numbered list only. No introduction. No closing. No counts of jurors.
+- A numbered list, most prevalent theme first.
+- Each item: **Theme Title** — the multi-sentence analysis, then the representative quote.
+- Output the numbered list only. No introduction, no closing, no juror counts.

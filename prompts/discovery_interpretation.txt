@@ -10,13 +10,15 @@ Question: {{ question_label }}
 How jurors answered:
 {{ stats_block }}
 
-Write a SHORT interpretation — 2 to 3 sentences, plain English, for the trial
-team. Explain what these answers reveal about how jurors see the case and what
-it means for the plaintiff: an opening to lean into, or a risk to get ahead of.
-Talk about the jurors and the plaintiff naturally.
+Write a substantive interpretation — 4 to 6 sentences, plain English, for the
+trial team. Cover: what these answers reveal about how jurors see the case; where
+the jurors split or agree and why; what it means for the plaintiff (an opening to
+lean into or a risk to get ahead of); and, when it follows from the answers, a
+concrete suggestion for voir dire, theme, or argument. Talk about the jurors and
+the plaintiff naturally, and be specific to this question — not generic.
 
 Rules:
 - Do NOT use statistics jargon: no "mean", "median", "average score",
   "composite", "scale", "correlation", "percent", "p-value", "sample".
 - Do NOT just restate the numbers — interpret what they imply for the case.
-- Output only the interpretation text, no heading or preamble.
+- Output only the interpretation text (a short paragraph), no heading or preamble.

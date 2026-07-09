@@ -886,15 +886,19 @@ def chart_award_distribution(comp: dict, out_path: str):
         vals = np.array(values, dtype=float)
         vmax = float(np.max(vals))
         M = 1_000_000
-        # Pick a bin width that yields ~10-14 bars and reads in round dollars.
+        # Bin width scales with the award range so bars stay legible.
         if vmax <= 2 * M:
             step = 0.25 * M
         elif vmax <= 6 * M:
             step = 0.5 * M
         elif vmax <= 15 * M:
             step = 1 * M
-        else:
+        elif vmax <= 40 * M:
             step = 2 * M
+        elif vmax <= 80 * M:
+            step = 4 * M
+        else:
+            step = 5 * M
         top = float(np.ceil(vmax / step) * step) or step
         bins = np.arange(0, top + step, step)
         ax.hist(vals, bins=bins, color=JA_PRIMARY, edgecolor="white", linewidth=1)
@@ -909,11 +913,13 @@ def chart_award_distribution(comp: dict, out_path: str):
                        label=f"Median: {_fmt_dollars(median_v)}")
         ax.legend(frameon=False, loc="upper right")
 
-        # Tick every 1-2 bins so labels never crowd.
-        tick_step = step * (2 if len(bins) > 11 else 1)
+        # ~8 evenly spaced "nice" ticks, angled so labels never overlap.
+        raw = top / 8 if top > 0 else 1
+        mag = 10 ** np.floor(np.log10(raw))
+        tick_step = next(mag * m for m in (1, 2, 2.5, 5, 10) if mag * m >= raw)
         ticks = np.arange(0, top + tick_step, tick_step)
         ax.set_xticks(ticks)
-        ax.set_xticklabels([_fmt_dollars(t) for t in ticks])
+        ax.set_xticklabels([_fmt_dollars(t) for t in ticks], rotation=45, ha="right")
         ax.set_xlim(0, top)
         ax.set_xlabel("Award amount")
         ax.set_ylabel("Number of jurors")
@@ -921,7 +927,6 @@ def chart_award_distribution(comp: dict, out_path: str):
                  fontweight="bold", color=JA_PRIMARY, fontsize=13)
     plt.tight_layout()
     plt.savefig(out_path, dpi=150, bbox_inches="tight", facecolor="white")
-    plt.close()
     plt.close()
 
 

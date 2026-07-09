@@ -334,8 +334,8 @@ def generate_open_ended_themes(bundle: dict, question_key: str) -> str:
     }
     topic, question_text = topic_map[question_key]
     # Truncate huge response sets to keep prompt size reasonable
-    if len(responses) > 60:
-        responses = responses[:60]
+    if len(responses) > 120:
+        responses = responses[:120]
     block = "\n".join(f"- {r}" for r in responses)
     ctx = {
         "question_topic": topic,
@@ -343,7 +343,7 @@ def generate_open_ended_themes(bundle: dict, question_key: str) -> str:
         "responses_block": block,
     }
     prompt = render_prompt("open_ended_themes.txt", ctx)
-    return call_ai(prompt, max_tokens=1500)
+    return call_ai(prompt, max_tokens=3200)
 
 
 def _discovery_stats_block(rec: dict) -> str:
@@ -385,7 +385,7 @@ def generate_discovery_interpretation(rec: dict, bundle: dict) -> str:
         "stats_block": _discovery_stats_block(rec),
     }
     prompt = render_prompt("discovery_interpretation.txt", ctx)
-    return call_ai(prompt, max_tokens=350)
+    return call_ai(prompt, max_tokens=600)
 
 
 def generate_discovery_summary(question_label: str, responses: list[str]) -> str:
@@ -394,8 +394,8 @@ def generate_discovery_summary(question_label: str, responses: list[str]) -> str
     label as the topic. Returns a single short paragraph or themed list."""
     if not responses:
         return ""
-    if len(responses) > 60:
-        responses = responses[:60]
+    if len(responses) > 120:
+        responses = responses[:120]
     block = "\n".join(f"- {r}" for r in responses)
     ctx = {
         "question_topic": f"Auto-discovered survey question: {question_label}",
@@ -403,7 +403,7 @@ def generate_discovery_summary(question_label: str, responses: list[str]) -> str
         "responses_block": block,
     }
     prompt = render_prompt("open_ended_themes.txt", ctx)
-    return call_ai(prompt, max_tokens=1000)
+    return call_ai(prompt, max_tokens=3200)
 
 
 # ---------------------------------------------------------------------------
