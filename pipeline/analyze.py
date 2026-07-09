@@ -884,7 +884,23 @@ def chart_award_distribution(comp: dict, out_path: str):
         ax.axis("off")
     else:
         vals = np.array(values, dtype=float)
-        vmax = float(np.max(vals))
+        # A few protest/outlier awards (e.g. someone typing an implausible
+        # figure in the open-entry format) can blow out the axis and squish
+        # every real award. Cap the DISPLAY at a robust upper bound (~98th
+        # percentile, rounded up) and note any awards beyond it.
+        n_over = 0
+        over_cap = None
+        if len(vals) >= 20:
+            p_hi = float(np.percentile(vals, 98))
+            if p_hi > 0:
+                cap_mag = 10 ** np.floor(np.log10(p_hi))
+                disp_cap = next((cap_mag * m for m in (1, 2, 2.5, 5, 10)
+                                 if cap_mag * m >= p_hi), p_hi)
+                if float(np.max(vals)) > disp_cap * 1.5:
+                    n_over = int((vals > disp_cap).sum())
+                    over_cap = disp_cap
+                    vals = vals[vals <= disp_cap]
+        vmax = float(np.max(vals)) if len(vals) else 1.0
         M = 1_000_000
         # Bin width scales with the award range so bars stay legible.
         if vmax <= 2 * M:
@@ -923,6 +939,11 @@ def chart_award_distribution(comp: dict, out_path: str):
         ax.set_xlim(0, top)
         ax.set_xlabel("Award amount")
         ax.set_ylabel("Number of jurors")
+        if n_over:
+            ax.text(0.99, 0.86,
+                    f"+{n_over} award{'s' if n_over != 1 else ''} above {_fmt_dollars(over_cap)} not shown",
+                    transform=ax.transAxes, ha="right", va="top",
+                    fontsize=8.5, color="#6c757d", style="italic")
     ax.set_title("Distribution of Damages Awards",
                  fontweight="bold", color=JA_PRIMARY, fontsize=13)
     plt.tight_layout()

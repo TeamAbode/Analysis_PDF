@@ -627,14 +627,21 @@ def format_award_reconciliation(recon: Optional[dict]) -> Optional[dict]:
     cmp = recon.get("comparison")
     cmp_fmt = None
     if cmp:
+        p = cmp["p_value"]
+        if p is None:
+            p_fmt = "—"
+        elif p < 0.001:
+            p_fmt = "< 0.001"
+        else:
+            p_fmt = f"{p:.3f}"
         cmp_fmt = {
             "a": cmp["a"], "b": cmp["b"],
             "mean_a": _money(cmp["mean_a"]), "mean_b": _money(cmp["mean_b"]),
             "median_a": _money(cmp["median_a"]), "median_b": _money(cmp["median_b"]),
             "mean_diff": _money_signed(cmp["mean_diff"]),
             "median_diff": _money_signed(cmp["median_diff"]),
-            "p_value": cmp["p_value"], "test": cmp["test"],
-            "significant": (cmp["p_value"] is not None and cmp["p_value"] < 0.05),
+            "p_value": p, "p_value_fmt": p_fmt, "test": cmp["test"],
+            "significant": (p is not None and p < 0.05),
         }
     return {
         "variant_col": recon.get("variant_col"),

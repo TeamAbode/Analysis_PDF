@@ -620,8 +620,11 @@ hr.rule { border: none; border-top: 1pt solid var(--ja-rule); margin: 12pt 0; }
 <div class="takeaway" style="margin-top:14px;">
   <strong>{{ rec.branches[0].label }} vs {{ rec.branches[1].label }}:</strong>
   mean {{ c.mean_a }} vs {{ c.mean_b }} ({{ c.mean_diff }}); median {{ c.median_a }} vs {{ c.median_b }} ({{ c.median_diff }}).
-  {% if c.p_value is not none %}<br>{{ c.test }}: p = {{ c.p_value }} — {% if c.significant %}<strong style="color:var(--ja-secondary, #0073DF);">a statistically significant difference</strong> between the two formats.{% else %}not a statistically significant difference.{% endif %}{% endif %}
+  {% if c.p_value is not none %}<br>{{ c.test }}: p = {{ c.p_value_fmt }} — {% if c.significant %}<strong style="color:var(--ja-secondary, #0073DF);">a statistically significant difference</strong> between the two formats.{% else %}not a statistically significant difference.{% endif %}{% endif %}
 </div>
+{% endif %}
+{% if rec.interpretation %}
+<div class="interpretation">{{ rec.interpretation | safe }}</div>
 {% endif %}
 {% endif %}
 
